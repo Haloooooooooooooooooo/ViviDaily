@@ -1,21 +1,16 @@
 {
   "name": "vividaily",
   "version": "1.0.0",
-  "description": "AI新闻聚合系统 - 爬取、处理、存储到Notion",
-  "main": "src/index.ts",
+  "description": "AI 热点新闻聚合日报 — 每日一推，洞察全球 AI 动态",
+  "private": true,
   "scripts": {
-    "start": "npx ts-node src/index.ts",
-    "build": "tsc",
-    "dev": "npx ts-node --watch src/index.ts"
+    "dev": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "install:all": "cd frontend && npm install && cd ../backend && npm install",
+    "build": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build"
   },
-  "dependencies": {
-    "@notionhq/client": "^2.2.15",
-    "rss-parser": "^3.13.0",
-    "dotenv": "^16.4.5"
-  },
-  "devDependencies": {
-    "@types/node": "^20.11.0",
-    "typescript": "^5.3.3",
-    "ts-node": "^10.9.2"
-  }
+  "keywords": ["ai", "news", "aggregator", "notion", "react"],
+  "author": "",
+  "license": "MIT"
 }
