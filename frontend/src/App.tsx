@@ -7,6 +7,7 @@ import { fetchDailyBrief, sortNewsByHotScore } from './lib/dailyBrief';
 import { exportNewsToNotion } from './lib/notion';
 import { buildSearchCorpus, findNewsItemById, getNewsUrl, normalizeSearchText } from './lib/news';
 import { cn } from './lib/utils';
+import { apiLogin, apiRegister, apiLogout, getStoredAuth, storeAuth, clearAuth } from './lib/supabase';
 import type { Category, NewsItem, View } from './types/news';
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userInfo, setUserInfo] = useState<{ name: string; email: string } | undefined>();
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [newsData, setNewsData] = useState<NewsItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<Category>('Hot');
   const [searchQuery, setSearchQuery] = useState('');
@@ -22,6 +24,16 @@ export default function App() {
   const [isFetching, setIsFetching] = useState(false);
   const [aiSummary, setAiSummary] = useState<string[]>([]);
   const [actionFeedback, setActionFeedback] = useState<{ id: string; message: string } | null>(null);
+
+  // 初始化时恢复登录状态
+  useEffect(() => {
+    const stored = getStoredAuth();
+    if (stored.user && stored.accessToken) {
+      setIsLoggedIn(true);
+      setUserInfo({ name: stored.user.email.split('@')[0], email: stored.user.email });
+      setAccessToken(stored.accessToken);
+    }
+  }, []);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -194,33 +206,62 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (accessToken) {
+      try {
+        await apiLogout(accessToken);
+      } catch (error) {
+        console.error('[logout] API call failed', error);
+      }
+    }
+    clearAuth();
     setIsLoggedIn(false);
     setUserInfo(undefined);
+    setAccessToken(null);
     setView('landing');
   };
 
-  const handleAuthSubmit = ({
+  const handleAuthSubmit = async ({
     email,
+    password,
     mode,
   }: {
     email: string;
     password: string;
     mode: 'login' | 'register';
   }) => {
-    const nameFromEmail = email.split('@')[0] || 'ViviDaily User';
-    const displayName = nameFromEmail.charAt(0).toUpperCase() + nameFromEmail.slice(1);
+    try {
+      const result = mode === 'login'
+        ? await apiLogin(email, password)
+        : await apiRegister(email, password);
 
-    setIsLoggedIn(true);
-    setUserInfo({
-      name: displayName,
-      email,
-    });
-    setIsLoginOpen(false);
-    setActionFeedback({
-      id: 'auth',
-      message: mode === 'login' ? '已登录' : '账户已创建并登录',
-    });
+      if (!result.ok) {
+        setActionFeedback({ id: 'auth', message: result.error || (mode === 'login' ? '登录失败' : '注册失败') });
+        return;
+      }
+
+      if (result.user && result.session) {
+        setIsLoggedIn(true);
+        setUserInfo({ name: email.split('@')[0], email });
+        setAccessToken(result.session.access_token);
+        storeAuth({ user: result.user, accessToken: result.session.access_token });
+        setIsLoginOpen(false);
+        setActionFeedback({
+          id: 'auth',
+          message: mode === 'login' ? '已登录' : '注册成功，已登录',
+        });
+      } else if (mode === 'register' && !result.session) {
+        // 需要邮箱验证
+        setIsLoginOpen(false);
+        setActionFeedback({
+          id: 'auth',
+          message: '注册成功，请查收验证邮件后登录',
+        });
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '网络错误';
+      setActionFeedback({ id: 'auth', message: msg });
+    }
   };
 
   if (view === 'landing') {

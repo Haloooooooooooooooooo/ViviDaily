@@ -12,6 +12,8 @@
 - **实体去重**：基于公司+产品+事件签名去重，避免同一事件重复展示
 - **Top5 热门榜单**：自动生成昨日最热新闻排行
 - **Notion 导出**：支持将新闻导出到 Notion 数据库
+- **用户认证**：基于 Supabase 的邮箱密码注册/登录
+- **登录门禁**：收藏和导出功能需要登录后使用
 
 ### 热度计算逻辑
 
@@ -48,6 +50,7 @@ dailynews/
 │   │   │   ├── daily-brief.ts  # 核心业务逻辑
 │   │   │   ├── server.ts       # HTTP 服务器
 │   │   │   └── notion-export.ts # Notion 导出
+│   │   ├── lib/          # Supabase 客户端、认证
 │   │   ├── ai/           # AI 处理模块
 │   │   ├── notion/       # Notion 客户端
 │   │   └── sources/      # RSS 源配置
@@ -80,8 +83,14 @@ AI_MODEL=deepseek-chat
 API_PORT=3102
 CORS_ALLOW_ORIGIN=http://127.0.0.1:3000
 
+# Supabase（用户认证）
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
 # Frontend
 VITE_API_BASE_URL=http://127.0.0.1:3102
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 ### 2. 安装依赖
@@ -160,6 +169,54 @@ cd frontend && npm run dev
   }
 }
 ```
+
+### POST /api/auth/register
+
+注册新用户。
+
+**请求体**：
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+
+### POST /api/auth/login
+
+用户登录。
+
+**请求体**：
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+
+**响应**：
+
+```json
+{
+  "ok": true,
+  "user": { "id": "xxx", "email": "user@example.com" },
+  "session": { "access_token": "xxx", "refresh_token": "xxx" }
+}
+```
+
+### GET /api/auth/me
+
+获取当前用户信息。
+
+**请求头**：`Authorization: Bearer <access_token>`
+
+### POST /api/auth/logout
+
+登出当前用户。
+
+**请求头**：`Authorization: Bearer <access_token>`
 
 ## 产品口径
 

@@ -51,17 +51,21 @@ export const LoginModal = ({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (payload: { email: string; password: string; mode: 'login' | 'register' }) => void;
+  onSubmit: (payload: { email: string; password: string; mode: 'login' | 'register' }) => Promise<void> | void;
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setMode('login');
       setEmail('');
       setPassword('');
+      setValidationError(null);
+      setIsLoading(false);
     }
   }, [isOpen]);
 
@@ -71,11 +75,30 @@ export const LoginModal = ({
       ? '欢迎回来，继续查看昨天最值得关注的 AI 热点。'
       : '创建一个账户，保存你的每日 AI 热点阅读节奏。';
 
-  const handleSubmit = (submitMode: 'login' | 'register') => {
+  const handleSubmit = async (submitMode: 'login' | 'register') => {
     const normalizedEmail = email.trim();
     const normalizedPassword = password.trim();
-    if (!normalizedEmail || !normalizedPassword) return;
-    onSubmit({ email: normalizedEmail, password: normalizedPassword, mode: submitMode });
+
+    if (!normalizedEmail) {
+      setValidationError('请输入邮箱地址');
+      return;
+    }
+    if (!normalizedPassword) {
+      setValidationError('请输入密码');
+      return;
+    }
+    if (normalizedPassword.length < 6) {
+      setValidationError('密码至少需要 6 个字符');
+      return;
+    }
+
+    setValidationError(null);
+    setIsLoading(true);
+    try {
+      await onSubmit({ email: normalizedEmail, password: normalizedPassword, mode: submitMode });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -106,51 +129,68 @@ export const LoginModal = ({
             </div>
 
             <div className="space-y-6">
+              {validationError && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
+                  {validationError}
+                </div>
+              )}
+
               <div>
                 <label className="block text-[10px] uppercase tracking-widest text-zinc-500 mb-2">邮箱地址 / Email</label>
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setValidationError(null);
+                  }}
                   placeholder="name@vividaily.ai"
                   className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-zinc-700 focus:outline-none focus:border-white/20 transition-colors"
                 />
               </div>
+
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="block text-[10px] uppercase tracking-widest text-zinc-500">密码 / Password</label>
-                  <button type="button" className="text-[10px] text-zinc-600 hover:text-white transition-colors" onClick={() => setPassword('12345678')}>
+                  <button
+                    type="button"
+                    className="text-[10px] text-zinc-600 hover:text-white transition-colors"
+                    onClick={() => {
+                      setPassword('12345678');
+                      setValidationError(null);
+                    }}
+                  >
                     使用演示密码
                   </button>
                 </div>
                 <input
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setValidationError(null);
+                  }}
                   placeholder="••••••••"
                   className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-zinc-700 focus:outline-none focus:border-white/20 transition-colors"
                 />
               </div>
 
               <button
+                type="button"
                 onClick={() => handleSubmit(mode)}
-                disabled={!email.trim() || !password.trim()}
+                disabled={isLoading}
                 className="w-full bg-white text-black font-bold py-4 rounded-xl hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {mode === 'login' ? '登录' : '创建账户'}
-              </button>
-
-              <button
-                onClick={() => handleSubmit(mode === 'login' ? 'register' : 'login')}
-                disabled={!email.trim() || !password.trim()}
-                className="w-full border border-white/10 text-white font-bold py-4 rounded-xl hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {mode === 'login' ? '创建账户并登录' : '已有账号，直接登录'}
+                {isLoading ? '处理中...' : mode === 'login' ? '登录' : '创建账户'}
               </button>
 
               <p className="text-center text-xs text-zinc-500">
                 {mode === 'login' ? '还没有账号？' : '已经有账号？'}{' '}
-                <button type="button" className="text-white hover:underline" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
+                <button
+                  type="button"
+                  className="text-white hover:underline"
+                  onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+                >
                   {mode === 'login' ? '切换到注册' : '切换到登录'}
                 </button>
               </p>
@@ -158,7 +198,7 @@ export const LoginModal = ({
 
             <div className="mt-12 text-center">
               <p className="text-[10px] uppercase tracking-widest text-zinc-700">
-                © 2026 VIVIDAILY
+                漏 2026 VIVIDAILY
                 <br />
                 隐私政策与服务条款
               </p>
