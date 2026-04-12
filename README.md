@@ -247,6 +247,23 @@ cd frontend && npm run dev
 4. 调用 `/api/notion/oauth/database` 设置目标数据库 ID
 5. 之后即可使用导出功能
 
+**Notion 数据库字段要求**：
+
+首次导出前，需要在 Notion 数据库中创建以下字段：
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| Title | 标题 | 新闻标题（必填） |
+| URL | URL | 原文链接 |
+| Source | 单选 | 新闻来源 |
+| Category | 单选 | 分类：模型/产品/政策/商业 |
+| Topics | 多选 | 主题标签 |
+| HotScore | 数字 | 热度分数 |
+| Summary | 文本 | AI 摘要 |
+| PublishAt | 日期 | 发布时间 |
+
+**提示**：支持直接粘贴完整的 Notion 数据库 URL，系统会自动提取 Database ID。
+
 ## 产品口径
 
 - **时间范围**：只抓取"昨天"的新闻（北京时间）
