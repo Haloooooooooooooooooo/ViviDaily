@@ -130,6 +130,12 @@ export default function App() {
   }, [newsData]);
 
   const handleToggleBookmark = (id: string) => {
+    // 登录门禁：未登录时弹出登录窗，不执行收藏
+    if (!isLoggedIn) {
+      setIsLoginOpen(true);
+      return;
+    }
+
     const targetItem = findNewsItemById(newsData, id);
     setNewsData((prev) =>
       prev.map((item) => (item.id === id ? { ...item, isBookmarked: !item.isBookmarked } : item))
@@ -161,6 +167,12 @@ export default function App() {
   };
 
   const handleExportNotion = async (id: string) => {
+    // 登录门禁：未登录时弹出登录窗，不执行导出
+    if (!isLoggedIn) {
+      setIsLoginOpen(true);
+      return;
+    }
+
     const item = findNewsItemById(newsData, id);
     if (!item || item.isExportedToNotion) return;
 
