@@ -16,6 +16,8 @@ import { cn } from './lib/utils';
 import { apiLogin, apiRegister, apiLogout, getStoredAuth, storeAuth, clearAuth } from './lib/supabase';
 import type { Category, NewsItem, View } from './types/news';
 
+const NOTION_GUIDE_ACK_KEY = 'vividaily_notion_guide_ack_v1';
+
 export default function App() {
   const [view, setView] = useState<View>('landing');
   const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -37,6 +39,7 @@ export default function App() {
   const [notionDatabaseId, setNotionDatabaseId] = useState('');
   const [notionGuideLoading, setNotionGuideLoading] = useState(false);
   const [pendingExportId, setPendingExportId] = useState<string | null>(null);
+  const [notionGuideAcknowledged, setNotionGuideAcknowledged] = useState(false);
 
   // 初始化时恢复登录状态
   useEffect(() => {
@@ -45,6 +48,9 @@ export default function App() {
       setIsLoggedIn(true);
       setUserInfo({ name: stored.user.email.split('@')[0], email: stored.user.email });
       setAccessToken(stored.accessToken);
+    }
+    if (typeof window !== 'undefined' && window.localStorage.getItem(NOTION_GUIDE_ACK_KEY) === '1') {
+      setNotionGuideAcknowledged(true);
     }
   }, []);
 
@@ -239,6 +245,18 @@ export default function App() {
     const item = findNewsItemById(newsData, id);
     if (!item || item.isExportedToNotion) return;
 
+    // 首次导入前先提示用户建好数据库和字段
+    if (!notionGuideAcknowledged) {
+      setPendingExportId(id);
+      setIsNotionGuideOpen(true);
+      setActionFeedback({
+        id: 'auth',
+        message: '首次导入前，请先按教程配置 Notion 数据库和字段',
+        tone: 'info',
+      });
+      return;
+    }
+
     setActionFeedback({ id, message: '导出中...' });
 
     try {
@@ -306,6 +324,10 @@ export default function App() {
 
       setActionFeedback({ id: 'auth', message: 'Notion 数据库已绑定', tone: 'success' });
       setNotionStatus((prev) => ({ ...(prev || {}), connected: true, databaseId: value, mode: 'user_oauth' }));
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(NOTION_GUIDE_ACK_KEY, '1');
+      }
+      setNotionGuideAcknowledged(true);
 
       if (pendingExportId) {
         const target = pendingExportId;
@@ -602,6 +624,9 @@ export default function App() {
                   <p className="text-[11px] text-zinc-500 mb-2">
                     打开你的 Notion 数据库页面，复制 URL 中最后一串长 ID（去掉前后的斜杠和问号参数）。
                   </p>
+                  <p className="text-[11px] text-zinc-500 mb-2">
+                    也可以直接粘贴完整数据库 URL，系统会自动识别并提取 Database ID。
+                  </p>
                   <input
                     type="text"
                     value={notionDatabaseId}
@@ -611,6 +636,9 @@ export default function App() {
                   />
                   <p className="text-[11px] text-zinc-500 mt-2">
                     示例：`https://www.notion.so/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?v=...` 里的 `xxxxxxxx...`。
+                  </p>
+                  <p className="text-[11px] text-zinc-400 mt-2">
+                    请先在数据库里建好这些字段：Title(标题)、URL(URL)、Source(单选)、Category(单选)、Topics(多选)、HotScore(数字)、Summary(文本)、PublishAt(日期)。
                   </p>
                   <button
                     type="button"

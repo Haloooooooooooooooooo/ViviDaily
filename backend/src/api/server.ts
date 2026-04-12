@@ -10,6 +10,7 @@ import {
   getNotionExportMode,
   getUserNotionConnection,
   handleOAuthCallback,
+  normalizeNotionDatabaseId,
   setUserNotionDatabase,
 } from './notion-oauth';
 
@@ -239,7 +240,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const updated = setUserNotionDatabase(authed.user.id, payload.databaseId);
+    const normalizedDatabaseId = normalizeNotionDatabaseId(payload.databaseId);
+    if (!normalizedDatabaseId) {
+      sendJson(res, 400, { ok: false, error: '请输入正确的 Notion 数据库 URL 或 Database ID' });
+      return;
+    }
+
+    const updated = setUserNotionDatabase(authed.user.id, normalizedDatabaseId);
     if (!updated) {
       sendJson(res, 400, { ok: false, error: '请先连接 Notion，再设置数据库。' });
       return;

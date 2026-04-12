@@ -29,6 +29,10 @@ export class NotionExportError extends Error {
 
 const RECENT_EXPORT_SIGNATURES = new Map<string, number>();
 const RECENT_TTL_MS = 1000 * 60 * 60;
+const NOTION_TITLE_LIMIT = 1900;
+const NOTION_RICH_TEXT_LIMIT = 1900;
+const NOTION_SELECT_LIMIT = 100;
+
 const REQUIRED_NOTION_SCHEMA = {
   Title: 'title',
   URL: 'url',
@@ -52,10 +56,13 @@ function resolveNotionConfig(context?: ExportContext): NotionConfig {
 
 function normalizeDate(value: string): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toISOString();
-  }
+  if (Number.isNaN(date.getTime())) return new Date().toISOString();
   return date.toISOString();
+}
+
+function clampText(value: string, limit: number): string {
+  if (!value) return '';
+  return value.length > limit ? value.slice(0, limit) : value;
 }
 
 function ensureValidUrl(value: string) {
@@ -76,10 +83,9 @@ function ensureValidUrl(value: string) {
 
 function hasSuspiciousGarbledText(value: string): boolean {
   if (!value) return false;
-  if (value.includes('�')) return true;
-  if (/\?{2,}/.test(value)) return true;
-  const suspiciousFragments = ['鍟', '妯', '浜у', '鏀跨', '銆', '锛', '鈥', '闆烽', '鏈哄櫒', '鐖辫', '鏂版櫤'];
-  return suspiciousFragments.some((fragment) => value.includes(fragment));
+  if (value.includes('\ufffd')) return true;
+  if (/\?{5,}/.test(value)) return true;
+  return false;
 }
 
 function ensureTextHealth(item: FrontendNewsItem) {
@@ -94,7 +100,7 @@ function ensureTextHealth(item: FrontendNewsItem) {
 
   for (const field of fields) {
     if (hasSuspiciousGarbledText(field.value)) {
-      throw new NotionExportError(`导出失败：字段 ${field.name} 存在疑似乱码，请刷新新闻后重试。`, 400);
+      throw new NotionExportError(`导出失败：字段 ${field.name} 疑似乱码，请刷新后重试。`, 400);
     }
   }
 }
@@ -109,9 +115,7 @@ function buildDuplicateSignature(item: FrontendNewsItem): string {
 function hasRecentDuplicate(signature: string): boolean {
   const now = Date.now();
   for (const [key, ts] of RECENT_EXPORT_SIGNATURES.entries()) {
-    if (now - ts > RECENT_TTL_MS) {
-      RECENT_EXPORT_SIGNATURES.delete(key);
-    }
+    if (now - ts > RECENT_TTL_MS) RECENT_EXPORT_SIGNATURES.delete(key);
   }
   return RECENT_EXPORT_SIGNATURES.has(signature);
 }
@@ -121,19 +125,24 @@ function markRecentExport(signature: string): void {
 }
 
 function asTitle(text: string) {
-  return { title: [{ text: { content: text } }] };
+  return { title: [{ text: { content: clampText(text, NOTION_TITLE_LIMIT) } }] };
 }
 
 function asRichText(text: string) {
-  return { rich_text: [{ text: { content: text } }] };
+  return { rich_text: [{ text: { content: clampText(text, NOTION_RICH_TEXT_LIMIT) } }] };
 }
 
 function asSelect(text: string) {
-  return { select: { name: text } };
+  return { select: { name: clampText(text, NOTION_SELECT_LIMIT) } };
 }
 
 function asMultiSelect(items: string[]) {
-  return { multi_select: items.map((item) => ({ name: item })) };
+  return {
+    multi_select: items
+      .map((item) => clampText(item, NOTION_SELECT_LIMIT))
+      .filter((name) => name.length > 0)
+      .map((name) => ({ name })),
+  };
 }
 
 function asNumber(value: number) {
@@ -213,9 +222,15 @@ function mapNotionError(error: unknown): NotionExportError {
   if (error instanceof APIResponseError) {
     if (error.status === 401) return new NotionExportError('Notion 鉴权失败，请检查授权配置。', 401);
     if (error.status === 404) return new NotionExportError('Notion 数据库不存在，或集成未共享到该数据库。', 404);
-    if (error.status === 400) return new NotionExportError('Notion 字段映射不匹配，请检查数据库字段配置。', 400);
+    if (error.status === 400) {
+      const detail =
+        (error as APIResponseError & { body?: { message?: string } }).body?.message ||
+        error.message ||
+        '请求参数无效';
+      return new NotionExportError(`Notion 400：${detail}`, 400);
+    }
     if (error.status === 429) return new NotionExportError('Notion 频率受限，请稍后重试。', 429);
-    return new NotionExportError(`Notion API 错误（${error.status}）。`, error.status);
+    return new NotionExportError(`Notion API 错误：${error.status}`, error.status);
   }
 
   const msg = error instanceof Error ? error.message : '未知错误';

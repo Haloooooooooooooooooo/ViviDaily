@@ -19,6 +19,7 @@ export interface UserNotionConnection {
 const OAUTH_STATE_CACHE = new Map<string, { userId: string; createdAt: number }>();
 const USER_NOTION_CONNECTIONS = new Map<string, UserNotionConnection>();
 const OAUTH_STATE_TTL_MS = 1000 * 60 * 10;
+const NOTION_ID_RE = /([0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/;
 
 function getConfig(): NotionOAuthConfig {
   return {
@@ -120,13 +121,33 @@ export function getUserNotionConnection(userId: string): UserNotionConnection | 
   return USER_NOTION_CONNECTIONS.get(userId) || null;
 }
 
+export function normalizeNotionDatabaseId(input: string): string {
+  const raw = input.trim();
+  if (!raw) return '';
+
+  // Support full Notion URL, e.g.:
+  // https://www.notion.so/workspace/Name-<dbId>?v=<viewId>
+  try {
+    const maybeUrl = new URL(raw);
+    const pathHit = maybeUrl.pathname.match(NOTION_ID_RE);
+    if (pathHit?.[1]) return pathHit[1];
+  } catch {
+    // Not a URL, continue parsing as plain ID/text.
+  }
+
+  const idHit = raw.match(NOTION_ID_RE);
+  return idHit?.[1] || '';
+}
+
 export function setUserNotionDatabase(userId: string, databaseId: string): UserNotionConnection | null {
   const connection = USER_NOTION_CONNECTIONS.get(userId);
   if (!connection) return null;
+  const normalizedDatabaseId = normalizeNotionDatabaseId(databaseId);
+  if (!normalizedDatabaseId) return null;
 
   USER_NOTION_CONNECTIONS.set(userId, {
     ...connection,
-    databaseId: databaseId.trim(),
+    databaseId: normalizedDatabaseId,
   });
   return USER_NOTION_CONNECTIONS.get(userId) || null;
 }
