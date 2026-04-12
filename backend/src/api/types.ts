@@ -26,9 +26,18 @@ export interface DailyBriefResponse {
   total: number;
 }
 
+export type AuthorityLevel = 'official' | 'headMedia' | 'generalMedia';
+
 export interface SourceConfig {
   name: string;
   url: string;
   priority: number;
+  authorityLevel: AuthorityLevel;
   enabled?: boolean;
 }
+
+export const AUTHORITY_WEIGHTS: Record<AuthorityLevel, number> = {
+  official: 1.5,
+  headMedia: 1.2,
+  generalMedia: 0.9,
+};

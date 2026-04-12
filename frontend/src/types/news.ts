@@ -13,7 +13,7 @@ export interface NewsItem {
   PublishAt: string;
   isBookmarked: boolean;
   isExportedToNotion?: boolean;
-  originalUrl?: string;
+  originalUrl: string;
 }
 
 export interface TopNewsItem {

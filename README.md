@@ -77,3 +77,15 @@ AI_MODEL=deepseek-chat
 - 继续优化真实接口的分类、主题标签与摘要质量
 - 接入真实 Notion 导出能力
 - 清理剩余历史目录和过期文档
+
+## Port Rules (Fixed)
+
+- Frontend dev server is fixed to `http://127.0.0.1:3000`
+- Backend daily brief API is fixed to `http://127.0.0.1:3102`
+- Frontend uses `strictPort: true`, so if `3000` is occupied it will fail fast instead of switching ports
+- Backend uses `API_PORT` (default `3102`), so avoid using generic `PORT` for this service
+
+## Deployment & Env
+
+See deployment checklist and env setup:
+- [docs/deployment-env.md](/e:/my_vibecoding/dailynews/docs/deployment-env.md)

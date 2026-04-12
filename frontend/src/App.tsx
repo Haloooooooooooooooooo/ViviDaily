@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Search } from 'lucide-react';
 import { LandingHero, LoadingScreen, LoginModal } from './components/entry';
 import { FavoritesView, NewsCard, RightSidebar, Sidebar, TopNav } from './components/feed';
 import { fetchDailyBrief, sortNewsByHotScore } from './lib/dailyBrief';
+import { exportNewsToNotion } from './lib/notion';
 import { buildSearchCorpus, findNewsItemById, getNewsUrl, normalizeSearchText } from './lib/news';
 import { cn } from './lib/utils';
 import type { Category, NewsItem, View } from './types/news';
@@ -159,14 +160,26 @@ export default function App() {
     }
   };
 
-  const handleExportNotion = (id: string) => {
+  const handleExportNotion = async (id: string) => {
     const item = findNewsItemById(newsData, id);
     if (!item || item.isExportedToNotion) return;
 
-    setNewsData((prev) =>
-      prev.map((entry) => (entry.id === id ? { ...entry, isExportedToNotion: true } : entry))
-    );
-    setActionFeedback({ id, message: '已导入 Notion' });
+    setActionFeedback({ id, message: '导出中...' });
+
+    try {
+      const result = await exportNewsToNotion(item);
+      if (!result.ok) {
+        setActionFeedback({ id, message: result.message || '导出失败' });
+        return;
+      }
+
+      setNewsData((prev) =>
+        prev.map((entry) => (entry.id === id ? { ...entry, isExportedToNotion: true } : entry))
+      );
+      setActionFeedback({ id, message: '已导入 Notion' });
+    } catch {
+      setActionFeedback({ id, message: '导出失败' });
+    }
   };
 
   const handleLogout = () => {

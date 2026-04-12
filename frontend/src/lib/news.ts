@@ -15,4 +15,4 @@ export const buildSearchCorpus = (item: NewsItem) =>
 export const findNewsItemById = (items: NewsItem[], id: string) =>
   items.find((item) => item.id === id);
 
-export const getNewsUrl = (item: NewsItem) => item.originalUrl || `https://vividaily.ai/news/${item.id}`;
+export const getNewsUrl = (item: NewsItem) => item.originalUrl;
