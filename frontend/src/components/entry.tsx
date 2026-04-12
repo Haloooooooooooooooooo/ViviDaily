@@ -68,7 +68,7 @@ export const LoginModal = ({
   const title = mode === 'login' ? '登录 ViviDaily' : '创建 ViviDaily 账户';
   const subtitle =
     mode === 'login'
-      ? '欢迎回来，即刻开启高性能 AI 资讯之旅。'
+      ? '欢迎回来，继续查看昨天最值得关注的 AI 热点。'
       : '创建一个账户，保存你的每日 AI 热点阅读节奏。';
 
   const handleSubmit = (submitMode: 'login' | 'register') => {
@@ -107,7 +107,7 @@ export const LoginModal = ({
 
             <div className="space-y-6">
               <div>
-                <label className="block text-[10px] uppercase tracking-widest text-zinc-500 mb-2">邮箱地址 / EMAIL</label>
+                <label className="block text-[10px] uppercase tracking-widest text-zinc-500 mb-2">邮箱地址 / Email</label>
                 <input
                   type="email"
                   value={email}
@@ -118,7 +118,7 @@ export const LoginModal = ({
               </div>
               <div>
                 <div className="flex justify-between items-center mb-2">
-                  <label className="block text-[10px] uppercase tracking-widest text-zinc-500">密码 / PASSWORD</label>
+                  <label className="block text-[10px] uppercase tracking-widest text-zinc-500">密码 / Password</label>
                   <button type="button" className="text-[10px] text-zinc-600 hover:text-white transition-colors" onClick={() => setPassword('12345678')}>
                     使用演示密码
                   </button>
@@ -151,14 +151,14 @@ export const LoginModal = ({
               <p className="text-center text-xs text-zinc-500">
                 {mode === 'login' ? '还没有账号？' : '已经有账号？'}{' '}
                 <button type="button" className="text-white hover:underline" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
-                  {mode === 'login' ? '切换至注册' : '切换至登录'}
+                  {mode === 'login' ? '切换到注册' : '切换到登录'}
                 </button>
               </p>
             </div>
 
             <div className="mt-12 text-center">
               <p className="text-[10px] uppercase tracking-widest text-zinc-700">
-                © 2024 VIVIDAILY
+                © 2026 VIVIDAILY
                 <br />
                 隐私政策与服务条款
               </p>
@@ -197,17 +197,17 @@ export const LandingHero = ({ onStart }: { onStart: () => void }) => (
     >
       <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] uppercase tracking-widest text-zinc-400 mb-8">
         <div className="w-1 h-1 rounded-full bg-white animate-pulse" />
-        AI 热点 实时聚合
+        AI 热点聚合
       </div>
 
       <h1 className="text-5xl md:text-7xl font-headline font-extrabold tracking-tighter text-white mb-8 leading-tight">
-        ViviDaily：洞察全球 AI 的
+        ViviDaily: 洞察 AI 世界的
         <br />
         <span className="metallic-text">每日热点窗口</span>
       </h1>
 
       <p className="text-zinc-400 text-sm md:text-base max-w-xl mx-auto mb-10 leading-relaxed">
-        为你筛选高价值 AI 新闻，聚合热点、模型、商业与政策动态，帮助你更快掌握每天最值得关注的变化。
+        为你筛选昨天最值得关注的 AI 新闻，聚合热点、模型、商业、产品与政策动态，帮助你更快掌握真正重要的变化。
       </p>
 
       <button onClick={onStart} className="silver-metallic-button">
@@ -232,9 +232,9 @@ export const LoadingScreen = () => (
         </svg>
       </div>
 
-      <h2 className="text-3xl md:text-4xl font-headline font-extrabold tracking-tighter mb-4">正在抓取昨日 AI 热点</h2>
+      <h2 className="text-3xl md:text-4xl font-headline font-extrabold tracking-tighter mb-4">正在抓取昨天的 AI 热点</h2>
       <p className="text-zinc-400 max-w-xl mx-auto leading-relaxed mb-10">
-        系统正在聚合已启用信息源，筛选高相关内容，生成摘要、标签和热度分数。完成后将自动进入今日新闻流。
+        系统正在聚合已启用的信息源，过滤低信号内容，整理摘要、标签与 HotScore，完成后将自动进入新闻流页面。
       </p>
 
       <div className="grid gap-3 text-left max-w-lg mx-auto">

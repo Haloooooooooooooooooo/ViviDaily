@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import type { Key } from 'react';
 import {
   ArrowUpRight,
   Bookmark,
@@ -12,33 +13,33 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { AI_SUMMARY, FEED_CATEGORIES, TOP5_DATA } from '../data/mockData';
+import { FEED_CATEGORIES } from '../data/mockData';
 import { cn } from '../lib/utils';
-import type { Category, NewsItem, View } from '../types/news';
+import type { Category, NewsItem, TopNewsItem, View } from '../types/news';
 
 const TEXT = {
-  newsCategory: '\u65b0\u95fb\u5206\u7c7b',
-  favorites: '\u6536\u85cf\u5939',
-  login: '\u767b\u5f55',
-  logout: '\u9000\u51fa\u767b\u5f55',
-  searchPlaceholder: '\u641c\u7d22\u6807\u9898\u3001\u6458\u8981\u3001\u6765\u6e90\u3001\u5206\u7c7b\u3001\u4e3b\u9898\u6807\u7b7e',
-  clearSearch: '\u6e05\u7a7a\u641c\u7d22',
-  openOriginal: '\u9605\u8bfb\u539f\u6587',
-  share: '\u5206\u4eab',
-  exportNotion: '\u5bfc\u5165 Notion',
-  exportedNotion: '\u5df2\u5bfc\u5165 Notion',
-  bookmarked: '\u5df2\u6536\u85cf',
-  bookmark: '\u6536\u85cf',
-  top5: '\u70ed\u95e8\u699c\u5355 Top 5',
-  aiSummary: 'AI \u6bcf\u65e5\u6458\u8981',
-  favoritesTitle: '\u6536\u85cf\u5185\u5bb9',
-  favoritesCountPrefix: '\u5f53\u524d\u5df2\u6536\u85cf ',
-  favoritesCountSuffix: ' \u6761\u65b0\u95fb',
-  favoritesEmpty: '\u6682\u65e0\u6536\u85cf\u5185\u5bb9',
-  favoritesHint: '\u70b9\u51fb\u65b0\u95fb\u5361\u7247\u4e0a\u7684\u6536\u85cf\u6309\u94ae\uff0c\u5c06\u611f\u5174\u8da3\u7684\u5185\u5bb9\u52a0\u5165\u6536\u85cf\u5939',
-  backToFeed: '\u8fd4\u56de\u65b0\u95fb\u6d41',
-  cancelBookmark: '\u53d6\u6d88\u6536\u85cf',
-  tags: ['# \u63a8\u7406\u52a0\u901f', '# \u5177\u8eab\u667a\u80fd', '# \u7b97\u529b\u535a\u5f08'],
+  newsCategory: '新闻分类',
+  favorites: '收藏夹',
+  login: '登录',
+  logout: '退出登录',
+  searchPlaceholder: '搜索标题、摘要、来源、分类、主题标签',
+  clearSearch: '清空搜索',
+  openOriginal: '阅读原文',
+  share: '分享',
+  exportNotion: '导入 Notion',
+  exportedNotion: '已导入 Notion',
+  bookmarked: '已收藏',
+  bookmark: '收藏',
+  top5: '热门榜单 Top 5',
+  aiSummary: 'AI 每日摘要',
+  favoritesTitle: '收藏内容',
+  favoritesCountPrefix: '当前已收藏 ',
+  favoritesCountSuffix: ' 条新闻',
+  favoritesEmpty: '暂无收藏内容',
+  favoritesHint: '点击新闻卡片上的收藏按钮，将感兴趣的内容加入收藏夹。',
+  backToFeed: '返回新闻流',
+  cancelBookmark: '取消收藏',
+  summaryTags: ['# Agent', '# 多模态', '# AI 产品'],
 } as const;
 
 export const Sidebar = ({
@@ -197,6 +198,7 @@ export const NewsCard = ({
   isHighlighted,
   feedbackMessage,
 }: {
+  key?: Key;
   item: NewsItem;
   onOpenOriginal: (id: string) => void;
   onToggleBookmark: (id: string) => void;
@@ -239,7 +241,7 @@ export const NewsCard = ({
         <span className="bg-zinc-800/50 text-zinc-400 text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
           {item.Source}
         </span>
-        <span className="bg-blue-900/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+        <span className="bg-blue-900/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded font-bold tracking-wider">
           {item.Category}
         </span>
         {item.Topics.slice(0, 2).map((topic) => (
@@ -305,10 +307,14 @@ export const NewsCard = ({
 };
 
 export const RightSidebar = ({
+  top5,
+  aiSummary,
   onHighlightNews,
   isFetching,
   activeNewsId,
 }: {
+  top5: TopNewsItem[];
+  aiSummary: string[];
   onHighlightNews: (newsId: string) => void;
   isFetching?: boolean;
   activeNewsId?: string | null;
@@ -317,7 +323,7 @@ export const RightSidebar = ({
     <div className="mb-10">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-base font-headline font-bold text-white">{TEXT.top5}</h3>
-        <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">Today</span>
+        <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">Yesterday</span>
       </div>
 
       {isFetching ? (
@@ -334,7 +340,7 @@ export const RightSidebar = ({
         </div>
       ) : (
         <div className="space-y-4">
-          {TOP5_DATA.map((item, index) => {
+          {top5.map((item, index) => {
             const colors = ['text-white', 'text-blue-500', 'text-purple-500', 'text-emerald-500', 'text-amber-500'];
             return (
               <div
@@ -354,7 +360,7 @@ export const RightSidebar = ({
                       {item.title}
                     </span>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-900/20 text-blue-400 font-bold uppercase tracking-wider">
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-900/20 text-blue-400 font-bold tracking-wider">
                         {item.category}
                       </span>
                       <span className="text-[9px] text-amber-300 font-bold">Hot {item.hotScore}</span>
@@ -382,7 +388,7 @@ export const RightSidebar = ({
       ) : (
         <>
           <ul className="space-y-2 mb-6">
-            {AI_SUMMARY.map((item, index) => (
+            {aiSummary.map((item, index) => (
               <li key={index} className="text-xs text-zinc-400 leading-relaxed flex gap-2">
                 <span className="text-zinc-500">•</span>
                 {item}
@@ -390,7 +396,7 @@ export const RightSidebar = ({
             ))}
           </ul>
           <div className="flex flex-wrap gap-2">
-            {TEXT.tags.map((tag) => (
+            {TEXT.summaryTags.map((tag) => (
               <span
                 key={tag}
                 className="px-3 py-1 bg-white/5 text-zinc-500 text-[10px] rounded-full hover:bg-white/10 hover:text-zinc-300 transition-colors cursor-default"
@@ -469,7 +475,7 @@ export const FavoritesView = ({
                 <span className="bg-zinc-800/50 text-zinc-400 text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
                   {item.Source}
                 </span>
-                <span className="bg-blue-900/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                <span className="bg-blue-900/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded font-bold tracking-wider">
                   {item.Category}
                 </span>
                 <span className="text-[9px] text-amber-300 font-bold">Hot {item.HotScore}</span>

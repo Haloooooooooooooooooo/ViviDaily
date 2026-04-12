@@ -6,7 +6,8 @@
   "scripts": {
     "start": "npx ts-node src/index.ts",
     "build": "tsc",
-    "dev": "npx ts-node --watch src/index.ts"
+    "dev": "npx ts-node src/index.ts",
+    "dev:api": "npx ts-node src/api/server.ts"
   },
   "dependencies": {
     "@notionhq/client": "^2.2.15",

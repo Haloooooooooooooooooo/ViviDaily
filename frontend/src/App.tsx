@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Search } from 'lucide-react';
-import { INITIAL_NEWS_DATA } from './data/mockData';
 import { LandingHero, LoadingScreen, LoginModal } from './components/entry';
 import { FavoritesView, NewsCard, RightSidebar, Sidebar, TopNav } from './components/feed';
+import { fetchDailyBrief, sortNewsByHotScore } from './lib/dailyBrief';
 import { buildSearchCorpus, findNewsItemById, getNewsUrl, normalizeSearchText } from './lib/news';
 import { cn } from './lib/utils';
 import type { Category, NewsItem, View } from './types/news';
@@ -19,6 +19,7 @@ export default function App() {
   const [highlightedNewsId, setHighlightedNewsId] = useState<string | null>(null);
   const [top5TargetId, setTop5TargetId] = useState<string | null>(null);
   const [isFetching, setIsFetching] = useState(false);
+  const [aiSummary, setAiSummary] = useState<string[]>([]);
   const [actionFeedback, setActionFeedback] = useState<{ id: string; message: string } | null>(null);
 
   useEffect(() => {
@@ -63,18 +64,33 @@ export default function App() {
     }
   }, [top5TargetId, view, isFetching, newsData, activeCategory, searchQuery]);
 
-  const handleGetStarted = () => {
+  const top5Data = useMemo(() => {
+    return sortNewsByHotScore(newsData)
+      .slice(0, 5)
+      .map((item, index) => ({
+        rank: `${index + 1}`.padStart(2, '0'),
+        title: item.Title,
+        hotScore: item.HotScore,
+        category: item.Category,
+        newsId: item.id,
+      }));
+  }, [newsData]);
+
+  const handleGetStarted = async () => {
     setView('loading');
     setIsFetching(true);
     setActiveCategory('Hot');
     setSearchQuery('');
     setHighlightedNewsId(null);
 
-    setTimeout(() => {
-      setNewsData(INITIAL_NEWS_DATA);
-      setIsFetching(false);
+    try {
+      const brief = await fetchDailyBrief();
+      setNewsData(brief.news);
+      setAiSummary(brief.summary);
       setView('feed');
-    }, 3000);
+    } finally {
+      setIsFetching(false);
+    }
   };
 
   const handleHighlightNews = (newsId: string) => {
@@ -236,12 +252,12 @@ export default function App() {
               <header className="fixed top-16 left-56 right-96 h-20 bg-black/80 backdrop-blur-md z-30 flex items-center justify-between px-8 border-b border-white/5">
                 <div>
                   <h1 className="text-3xl font-headline font-extrabold tracking-tighter text-white">
-                    {activeCategory === 'Hot' ? '今日 AI 简报' : `${activeCategory}动态`}
+                    {activeCategory === 'Hot' ? '昨日 AI 简报' : `${activeCategory}动态`}
                   </h1>
                   {!isFetching && (
                     <p className="text-xs text-zinc-500 mt-1">
                       {activeCategory === 'Hot'
-                        ? `显示全部热点新闻，共 ${filteredNews.length} 条`
+                        ? `显示昨天全部热点新闻，共 ${filteredNews.length} 条`
                         : `当前分类：${activeCategory}，共 ${filteredNews.length} 条`}
                     </p>
                   )}
@@ -264,7 +280,7 @@ export default function App() {
                         />
                       </svg>
                     </div>
-                    <p className="text-xl font-headline font-bold text-white mb-2">正在获取今日热点</p>
+                    <p className="text-xl font-headline font-bold text-white mb-2">正在获取昨天热点</p>
                     <p className="text-sm text-zinc-500">请稍候...</p>
                   </div>
                 ) : filteredNews.length === 0 ? (
@@ -319,6 +335,8 @@ export default function App() {
 
       {view === 'feed' && (
         <RightSidebar
+          top5={top5Data}
+          aiSummary={aiSummary}
           onHighlightNews={handleHighlightNews}
           isFetching={isFetching}
           activeNewsId={highlightedNewsId ?? top5TargetId}
