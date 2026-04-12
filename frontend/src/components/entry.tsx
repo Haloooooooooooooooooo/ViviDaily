@@ -48,10 +48,14 @@ export const LoginModal = ({
   isOpen,
   onClose,
   onSubmit,
+  serverMessage,
+  serverMessageTone = 'info',
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (payload: { email: string; password: string; mode: 'login' | 'register' }) => Promise<void> | void;
+  serverMessage?: string | null;
+  serverMessageTone?: 'success' | 'error' | 'info';
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -132,6 +136,19 @@ export const LoginModal = ({
               {validationError && (
                 <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
                   {validationError}
+                </div>
+              )}
+              {serverMessage && (
+                <div
+                  className={`rounded-xl px-4 py-3 text-sm ${
+                    serverMessageTone === 'error'
+                      ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+                      : serverMessageTone === 'success'
+                      ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
+                      : 'bg-white/5 border border-white/10 text-zinc-200'
+                  }`}
+                >
+                  {serverMessage}
                 </div>
               )}
 

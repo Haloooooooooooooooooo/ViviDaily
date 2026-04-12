@@ -12,6 +12,7 @@
 - **实体去重**：基于公司+产品+事件签名去重，避免同一事件重复展示
 - **Top5 热门榜单**：自动生成昨日最热新闻排行
 - **Notion 导出**：支持将新闻导出到 Notion 数据库
+- **用户级 Notion OAuth**：登录用户可授权自己的 Notion 工作区
 - **用户认证**：基于 Supabase 的邮箱密码注册/登录
 - **登录门禁**：收藏和导出功能需要登录后使用
 
@@ -49,7 +50,8 @@ dailynews/
 │   │   ├── api/          # HTTP API 服务
 │   │   │   ├── daily-brief.ts  # 核心业务逻辑
 │   │   │   ├── server.ts       # HTTP 服务器
-│   │   │   └── notion-export.ts # Notion 导出
+│   │   │   ├── notion-export.ts # Notion 导出
+│   │   │   └── notion-oauth.ts  # 用户级 OAuth
 │   │   ├── lib/          # Supabase 客户端、认证
 │   │   ├── ai/           # AI 处理模块
 │   │   ├── notion/       # Notion 客户端
@@ -70,9 +72,15 @@ dailynews/
 在项目根目录创建 `.env` 文件：
 
 ```env
-# Notion（可选，用于导出功能）
+# Notion（共享模式导出）
 NOTION_API_KEY=secret_xxx
 NOTION_DATABASE_ID=xxx
+
+# Notion OAuth（用户级授权，可选）
+NOTION_CLIENT_ID=xxx
+NOTION_CLIENT_SECRET=xxx
+NOTION_REDIRECT_URI=http://127.0.0.1:3102/api/notion/oauth/callback
+NOTION_EXPORT_MODE=user_oauth  # 或 shared
 
 # AI（必需，用于摘要生成）
 AI_API_KEY=sk-xxx
@@ -82,6 +90,7 @@ AI_MODEL=deepseek-chat
 # Backend
 API_PORT=3102
 CORS_ALLOW_ORIGIN=http://127.0.0.1:3000
+FRONTEND_URL=http://127.0.0.1:3000
 
 # Supabase（用户认证）
 SUPABASE_URL=https://xxx.supabase.co
@@ -217,6 +226,26 @@ cd frontend && npm run dev
 登出当前用户。
 
 **请求头**：`Authorization: Bearer <access_token>`
+
+### Notion OAuth API
+
+用户级 Notion 授权相关接口：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/notion/oauth/start` | GET | 发起 Notion OAuth 授权 |
+| `/api/notion/oauth/callback` | GET | OAuth 回调（系统内部使用） |
+| `/api/notion/oauth/status` | GET | 获取用户 Notion 连接状态 |
+| `/api/notion/oauth/database` | POST | 设置导出目标数据库 ID |
+| `/api/notion/oauth/disconnect` | DELETE | 断开 Notion 连接 |
+
+**Notion OAuth 流程**：
+
+1. 用户登录后调用 `/api/notion/oauth/start` 获取授权链接
+2. 用户在 Notion 页面授权后回调到前端
+3. 前端调用 `/api/notion/oauth/status` 检查连接状态
+4. 调用 `/api/notion/oauth/database` 设置目标数据库 ID
+5. 之后即可使用导出功能
 
 ## 产品口径
 

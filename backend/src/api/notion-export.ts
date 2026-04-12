@@ -6,6 +6,11 @@ interface NotionConfig {
   databaseId: string;
 }
 
+export interface ExportContext {
+  apiKey?: string;
+  databaseId?: string;
+}
+
 export interface ExportResult {
   ok: boolean;
   message: string;
@@ -38,10 +43,10 @@ const REQUIRED_NOTION_SCHEMA = {
 type RequiredSchemaKey = keyof typeof REQUIRED_NOTION_SCHEMA;
 type NotionDbSchema = Record<string, { type: string }>;
 
-function getNotionConfig(): NotionConfig {
+function resolveNotionConfig(context?: ExportContext): NotionConfig {
   return {
-    apiKey: process.env.NOTION_API_KEY || '',
-    databaseId: process.env.NOTION_DATABASE_ID || '',
+    apiKey: context?.apiKey || process.env.NOTION_API_KEY || '',
+    databaseId: context?.databaseId || process.env.NOTION_DATABASE_ID || '',
   };
 }
 
@@ -50,7 +55,6 @@ function normalizeDate(value: string): string {
   if (Number.isNaN(date.getTime())) {
     return new Date().toISOString();
   }
-
   return date.toISOString();
 }
 
@@ -65,9 +69,7 @@ function ensureValidUrl(value: string) {
       throw new NotionExportError('导出失败：URL 必须是 http 或 https。', 400);
     }
   } catch (error) {
-    if (error instanceof NotionExportError) {
-      throw error;
-    }
+    if (error instanceof NotionExportError) throw error;
     throw new NotionExportError('导出失败：URL 格式不合法。', 400);
   }
 }
@@ -76,21 +78,7 @@ function hasSuspiciousGarbledText(value: string): boolean {
   if (!value) return false;
   if (value.includes('�')) return true;
   if (/\?{2,}/.test(value)) return true;
-
-  const suspiciousFragments = [
-    '鍟',
-    '妯',
-    '浜у',
-    '鏀跨',
-    '銆',
-    '锛',
-    '鈥',
-    '闆烽',
-    '鏈哄櫒',
-    '鐖辫',
-    '鏂版櫤',
-  ];
-
+  const suspiciousFragments = ['鍟', '妯', '浜у', '鏀跨', '銆', '锛', '鈥', '闆烽', '鏈哄櫒', '鐖辫', '鏂版櫤'];
   return suspiciousFragments.some((fragment) => value.includes(fragment));
 }
 
@@ -106,10 +94,7 @@ function ensureTextHealth(item: FrontendNewsItem) {
 
   for (const field of fields) {
     if (hasSuspiciousGarbledText(field.value)) {
-      throw new NotionExportError(
-        `导出失败：字段 ${field.name} 存在疑似乱码，请刷新新闻后重试。`,
-        400,
-      );
+      throw new NotionExportError(`导出失败：字段 ${field.name} 存在疑似乱码，请刷新新闻后重试。`, 400);
     }
   }
 }
@@ -136,52 +121,37 @@ function markRecentExport(signature: string): void {
 }
 
 function asTitle(text: string) {
-  return {
-    title: [{ text: { content: text } }],
-  };
+  return { title: [{ text: { content: text } }] };
 }
 
 function asRichText(text: string) {
-  return {
-    rich_text: [{ text: { content: text } }],
-  };
+  return { rich_text: [{ text: { content: text } }] };
 }
 
 function asSelect(text: string) {
-  return {
-    select: { name: text },
-  };
+  return { select: { name: text } };
 }
 
 function asMultiSelect(items: string[]) {
-  return {
-    multi_select: items.map((item) => ({ name: item })),
-  };
+  return { multi_select: items.map((item) => ({ name: item })) };
 }
 
 function asNumber(value: number) {
-  return {
-    number: value,
-  };
+  return { number: value };
 }
 
 function asDate(value: string) {
-  return {
-    date: { start: normalizeDate(value) },
-  };
+  return { date: { start: normalizeDate(value) } };
 }
 
 function asUrl(value: string) {
-  return {
-    url: value,
-  };
+  return { url: value };
 }
 
 function ensureRequiredConfig(config: NotionConfig) {
   if (!config.apiKey) {
     throw new NotionExportError('缺少 NOTION_API_KEY，请先配置环境变量。', 500);
   }
-
   if (!config.databaseId) {
     throw new NotionExportError('缺少 NOTION_DATABASE_ID，请先配置环境变量。', 500);
   }
@@ -219,28 +189,18 @@ function buildProperties(item: FrontendNewsItem): Record<string, unknown> {
   };
 }
 
-async function hasDuplicateEntry(
-  notion: Client,
-  databaseId: string,
-  item: FrontendNewsItem,
-): Promise<boolean> {
+async function hasDuplicateEntry(notion: Client, databaseId: string, item: FrontendNewsItem): Promise<boolean> {
   const byUrl = await notion.databases.query({
     database_id: databaseId,
     page_size: 1,
-    filter: {
-      property: 'URL',
-      url: { equals: item.originalUrl },
-    },
+    filter: { property: 'URL', url: { equals: item.originalUrl } },
   });
   if (byUrl.results.length > 0) return true;
 
   const byTitle = await notion.databases.query({
     database_id: databaseId,
     page_size: 1,
-    filter: {
-      property: 'Title',
-      title: { equals: item.Title },
-    },
+    filter: { property: 'Title', title: { equals: item.Title } },
   });
   if (byTitle.results.length > 0) return true;
 
@@ -248,24 +208,13 @@ async function hasDuplicateEntry(
 }
 
 function mapNotionError(error: unknown): NotionExportError {
-  if (error instanceof NotionExportError) {
-    return error;
-  }
+  if (error instanceof NotionExportError) return error;
 
   if (error instanceof APIResponseError) {
-    if (error.status === 401) {
-      return new NotionExportError('Notion 鉴权失败，请检查 NOTION_API_KEY。', 401);
-    }
-    if (error.status === 404) {
-      return new NotionExportError('Notion 数据库不存在，或集成未共享到该数据库。', 404);
-    }
-    if (error.status === 400) {
-      return new NotionExportError('Notion 字段映射不匹配，请检查数据库字段配置。', 400);
-    }
-    if (error.status === 429) {
-      return new NotionExportError('Notion 频率受限，请稍后重试。', 429);
-    }
-
+    if (error.status === 401) return new NotionExportError('Notion 鉴权失败，请检查授权配置。', 401);
+    if (error.status === 404) return new NotionExportError('Notion 数据库不存在，或集成未共享到该数据库。', 404);
+    if (error.status === 400) return new NotionExportError('Notion 字段映射不匹配，请检查数据库字段配置。', 400);
+    if (error.status === 429) return new NotionExportError('Notion 频率受限，请稍后重试。', 429);
     return new NotionExportError(`Notion API 错误（${error.status}）。`, error.status);
   }
 
@@ -273,7 +222,7 @@ function mapNotionError(error: unknown): NotionExportError {
   return new NotionExportError(`导出失败：${msg}`, 500);
 }
 
-export async function exportNewsToNotion(item: FrontendNewsItem): Promise<ExportResult> {
+export async function exportNewsToNotion(item: FrontendNewsItem, context?: ExportContext): Promise<ExportResult> {
   try {
     ensureValidUrl(item.originalUrl);
     ensureTextHealth(item);
@@ -283,13 +232,12 @@ export async function exportNewsToNotion(item: FrontendNewsItem): Promise<Export
       return { ok: true, message: '已导入（重复跳过）', duplicate: true };
     }
 
-    const config = getNotionConfig();
+    const config = resolveNotionConfig(context);
     ensureRequiredConfig(config);
 
     const notion = new Client({ auth: config.apiKey });
     const db = await notion.databases.retrieve({ database_id: config.databaseId });
     const schema = db.properties as NotionDbSchema;
-
     ensureStrictSchema(schema);
 
     const duplicated = await hasDuplicateEntry(notion, config.databaseId, item);

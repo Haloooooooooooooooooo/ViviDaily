@@ -1,4 +1,9 @@
+import dotenv from 'dotenv';
+import path from 'path';
 import { createClient } from '@supabase/supabase-js';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
@@ -12,6 +17,16 @@ export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-anon-key',
 );
+
+function mapSupabaseAuthError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('email rate limit exceeded')) return '注册过于频繁，请稍后再试';
+  if (m.includes('invalid login credentials')) return '邮箱或密码错误';
+  if (m.includes('email not confirmed')) return '邮箱尚未验证，请先完成邮件验证';
+  if (m.includes('user already registered')) return '该邮箱已注册，请直接登录';
+  if (m.includes('password should be at least')) return '密码长度不足，请至少 6 位';
+  return message;
+}
 
 export interface User {
   id: string;
@@ -36,7 +51,7 @@ export async function signUp(email: string, password: string): Promise<AuthResul
   }
   try {
     const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) return { ok: false, error: error.message };
+    if (error) return { ok: false, error: mapSupabaseAuthError(error.message) };
     if (!data.user) return { ok: false, error: '注册失败，请稍后重试' };
 
     if (!data.session) {
@@ -78,10 +93,7 @@ export async function signIn(email: string, password: string): Promise<AuthResul
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      if (error.message.includes('Invalid login credentials')) {
-        return { ok: false, error: '邮箱或密码错误' };
-      }
-      return { ok: false, error: error.message };
+      return { ok: false, error: mapSupabaseAuthError(error.message) };
     }
 
     if (!data.user || !data.session) {
@@ -113,7 +125,7 @@ export async function getUser(accessToken: string): Promise<AuthResult> {
   }
   try {
     const { data, error } = await supabase.auth.getUser(accessToken);
-    if (error) return { ok: false, error: error.message };
+    if (error) return { ok: false, error: mapSupabaseAuthError(error.message) };
     if (!data.user) return { ok: false, error: '用户不存在' };
 
     return {
@@ -136,7 +148,7 @@ export async function signOut(accessToken: string): Promise<{ ok: boolean; error
   }
   try {
     const { error } = await supabase.auth.getUser(accessToken);
-    if (error) return { ok: false, error: error.message };
+    if (error) return { ok: false, error: mapSupabaseAuthError(error.message) };
     return { ok: true };
   } catch (error) {
     const msg = error instanceof Error ? error.message : '退出失败';

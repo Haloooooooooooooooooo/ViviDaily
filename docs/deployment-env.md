@@ -29,6 +29,11 @@ Notion Database 必须包含以下字段，且类型必须一致：
 # Notion
 NOTION_API_KEY=secret_xxx
 NOTION_DATABASE_ID=xxxxxxxxxxxxxxxx
+NOTION_EXPORT_MODE=shared
+NOTION_CLIENT_ID=
+NOTION_CLIENT_SECRET=
+NOTION_REDIRECT_URI=http://127.0.0.1:3102/api/notion/oauth/callback
+FRONTEND_URL=http://127.0.0.1:3000
 
 # AI
 AI_API_KEY=sk-xxx

@@ -166,6 +166,30 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Dev-only helper: inspect generated Notion OAuth URL and key config values.
+  if (pathname === '/api/notion/oauth/debug' && req.method === 'GET') {
+    if (process.env.NODE_ENV === 'production') {
+      sendJson(res, 404, { ok: false, error: 'Not found' });
+      return;
+    }
+
+    try {
+      const authUrl = buildOAuthStartUrl('debug-user');
+      sendJson(res, 200, {
+        ok: true,
+        mode: getNotionExportMode(),
+        notionClientId: process.env.NOTION_CLIENT_ID || '',
+        notionRedirectUri: process.env.NOTION_REDIRECT_URI || '',
+        frontendUrl: process.env.FRONTEND_URL || '',
+        authUrl,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Notion OAuth debug failed';
+      sendJson(res, 500, { ok: false, error: msg });
+    }
+    return;
+  }
+
   if (pathname === '/api/notion/oauth/callback' && req.method === 'GET') {
     const code = requestUrl.searchParams.get('code');
     const state = requestUrl.searchParams.get('state');

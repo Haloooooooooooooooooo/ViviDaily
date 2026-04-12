@@ -4,7 +4,13 @@ import { Search } from 'lucide-react';
 import { LandingHero, LoadingScreen, LoginModal } from './components/entry';
 import { FavoritesView, NewsCard, RightSidebar, Sidebar, TopNav } from './components/feed';
 import { fetchDailyBrief, sortNewsByHotScore } from './lib/dailyBrief';
-import { exportNewsToNotion } from './lib/notion';
+import {
+  exportNewsToNotion,
+  getNotionOAuthStatus,
+  setNotionOAuthDatabase,
+  startNotionOAuth,
+  type NotionOAuthStatusResponse,
+} from './lib/notion';
 import { buildSearchCorpus, findNewsItemById, getNewsUrl, normalizeSearchText } from './lib/news';
 import { cn } from './lib/utils';
 import { apiLogin, apiRegister, apiLogout, getStoredAuth, storeAuth, clearAuth } from './lib/supabase';
@@ -23,7 +29,14 @@ export default function App() {
   const [top5TargetId, setTop5TargetId] = useState<string | null>(null);
   const [isFetching, setIsFetching] = useState(false);
   const [aiSummary, setAiSummary] = useState<string[]>([]);
-  const [actionFeedback, setActionFeedback] = useState<{ id: string; message: string } | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<
+    { id: string; message: string; tone?: 'success' | 'error' | 'info' } | null
+  >(null);
+  const [isNotionGuideOpen, setIsNotionGuideOpen] = useState(false);
+  const [notionStatus, setNotionStatus] = useState<NotionOAuthStatusResponse | null>(null);
+  const [notionDatabaseId, setNotionDatabaseId] = useState('');
+  const [notionGuideLoading, setNotionGuideLoading] = useState(false);
+  const [pendingExportId, setPendingExportId] = useState<string | null>(null);
 
   // 初始化时恢复登录状态
   useEffect(() => {
@@ -49,9 +62,28 @@ export default function App() {
   useEffect(() => {
     if (!actionFeedback) return;
 
-    const timer = setTimeout(() => setActionFeedback(null), 2200);
+    const timeout = actionFeedback.id === 'auth' ? 4200 : 2200;
+    const timer = setTimeout(() => setActionFeedback(null), timeout);
     return () => clearTimeout(timer);
   }, [actionFeedback]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauth = params.get('notion_oauth');
+    if (!oauth) return;
+
+    if (oauth === 'success') {
+      setActionFeedback({ id: 'auth', message: 'Notion 授权成功，请设置数据库 ID 后导出', tone: 'success' });
+      setIsNotionGuideOpen(true);
+    } else if (oauth === 'failed') {
+      setActionFeedback({ id: 'auth', message: 'Notion 授权失败，请重试', tone: 'error' });
+    } else if (oauth === 'invalid_state' || oauth === 'invalid_callback') {
+      setActionFeedback({ id: 'auth', message: 'Notion 授权状态无效，请重新发起授权', tone: 'error' });
+    }
+
+    const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+    window.history.replaceState({}, '', cleanUrl);
+  }, []);
 
   useEffect(() => {
     if (!top5TargetId || view !== 'feed' || isFetching) return;
@@ -76,6 +108,25 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [top5TargetId, view, isFetching, newsData, activeCategory, searchQuery]);
+
+  useEffect(() => {
+    if (!isNotionGuideOpen || !accessToken) return;
+
+    const run = async () => {
+      setNotionGuideLoading(true);
+      try {
+        const status = await getNotionOAuthStatus(accessToken);
+        setNotionStatus(status);
+        setNotionDatabaseId(status.databaseId || '');
+      } catch {
+        setActionFeedback({ id: 'auth', message: '读取 Notion 状态失败', tone: 'error' });
+      } finally {
+        setNotionGuideLoading(false);
+      }
+    };
+
+    run();
+  }, [isNotionGuideOpen, accessToken]);
 
   const top5Data = useMemo(() => {
     return sortNewsByHotScore(newsData)
@@ -191,8 +242,12 @@ export default function App() {
     setActionFeedback({ id, message: '导出中...' });
 
     try {
-      const result = await exportNewsToNotion(item);
+      const result = await exportNewsToNotion(item, accessToken || undefined);
       if (!result.ok) {
+        if (result.message.includes('连接 Notion') || result.message.includes('设置 Notion Database ID')) {
+          setPendingExportId(id);
+          setIsNotionGuideOpen(true);
+        }
         setActionFeedback({ id, message: result.message || '导出失败' });
         return;
       }
@@ -203,6 +258,68 @@ export default function App() {
       setActionFeedback({ id, message: '已导入 Notion' });
     } catch {
       setActionFeedback({ id, message: '导出失败' });
+    }
+  };
+
+  const handleConnectNotion = async () => {
+    if (!accessToken) {
+      setActionFeedback({ id: 'auth', message: '请先登录', tone: 'error' });
+      setIsLoginOpen(true);
+      return;
+    }
+
+    setNotionGuideLoading(true);
+    try {
+      const result = await startNotionOAuth(accessToken);
+      if (!result.ok || !result.authUrl) {
+        setActionFeedback({ id: 'auth', message: result.error || '无法发起 Notion 授权', tone: 'error' });
+        return;
+      }
+      window.location.href = result.authUrl;
+    } catch {
+      setActionFeedback({ id: 'auth', message: '发起 Notion 授权失败', tone: 'error' });
+    } finally {
+      setNotionGuideLoading(false);
+    }
+  };
+
+  const handleSaveNotionDatabase = async () => {
+    if (!accessToken) {
+      setActionFeedback({ id: 'auth', message: '请先登录', tone: 'error' });
+      setIsLoginOpen(true);
+      return;
+    }
+
+    const value = notionDatabaseId.trim();
+    if (!value) {
+      setActionFeedback({ id: 'auth', message: '请输入 Notion Database ID', tone: 'error' });
+      return;
+    }
+
+    setNotionGuideLoading(true);
+    try {
+      const result = await setNotionOAuthDatabase(accessToken, value);
+      if (!result.ok) {
+        setActionFeedback({ id: 'auth', message: result.error || '保存数据库 ID 失败', tone: 'error' });
+        return;
+      }
+
+      setActionFeedback({ id: 'auth', message: 'Notion 数据库已绑定', tone: 'success' });
+      setNotionStatus((prev) => ({ ...(prev || {}), connected: true, databaseId: value, mode: 'user_oauth' }));
+
+      if (pendingExportId) {
+        const target = pendingExportId;
+        setPendingExportId(null);
+        setIsNotionGuideOpen(false);
+        await handleExportNotion(target);
+        return;
+      }
+
+      setIsNotionGuideOpen(false);
+    } catch {
+      setActionFeedback({ id: 'auth', message: '保存数据库 ID 失败', tone: 'error' });
+    } finally {
+      setNotionGuideLoading(false);
     }
   };
 
@@ -236,7 +353,11 @@ export default function App() {
         : await apiRegister(email, password);
 
       if (!result.ok) {
-        setActionFeedback({ id: 'auth', message: result.error || (mode === 'login' ? '登录失败' : '注册失败') });
+        setActionFeedback({
+          id: 'auth',
+          message: result.error || (mode === 'login' ? '登录失败' : '注册失败'),
+          tone: 'error',
+        });
         return;
       }
 
@@ -249,6 +370,7 @@ export default function App() {
         setActionFeedback({
           id: 'auth',
           message: mode === 'login' ? '已登录' : '注册成功，已登录',
+          tone: 'success',
         });
       } else if (mode === 'register' && !result.session) {
         // 需要邮箱验证
@@ -256,11 +378,12 @@ export default function App() {
         setActionFeedback({
           id: 'auth',
           message: '注册成功，请查收验证邮件后登录',
+          tone: 'success',
         });
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : '网络错误';
-      setActionFeedback({ id: 'auth', message: msg });
+      setActionFeedback({ id: 'auth', message: msg, tone: 'error' });
     }
   };
 
@@ -272,6 +395,8 @@ export default function App() {
           isOpen={isLoginOpen}
           onClose={() => setIsLoginOpen(false)}
           onSubmit={handleAuthSubmit}
+          serverMessage={actionFeedback?.id === 'auth' ? actionFeedback.message : null}
+          serverMessageTone={actionFeedback?.id === 'auth' ? actionFeedback.tone || 'info' : 'info'}
         />
       </>
     );
@@ -413,7 +538,117 @@ export default function App() {
         isOpen={isLoginOpen}
         onClose={() => setIsLoginOpen(false)}
         onSubmit={handleAuthSubmit}
+        serverMessage={actionFeedback?.id === 'auth' ? actionFeedback.message : null}
+        serverMessageTone={actionFeedback?.id === 'auth' ? actionFeedback.tone || 'info' : 'info'}
       />
+
+      {actionFeedback?.id === 'auth' && !isLoginOpen && (
+        <div
+          className={cn(
+            'fixed bottom-6 left-1/2 z-[120] -translate-x-1/2 rounded-full px-4 py-2 text-sm font-semibold shadow-lg',
+            actionFeedback.tone === 'error'
+              ? 'bg-red-100 text-red-700'
+              : actionFeedback.tone === 'success'
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-white text-black',
+          )}
+        >
+          {actionFeedback.message}
+        </div>
+      )}
+
+      <AnimatePresence>
+        {isNotionGuideOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 24, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 24, scale: 0.96 }}
+              className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#121212] p-6"
+            >
+              <h3 className="text-xl font-bold text-white mb-2">首次导入教程（小白版）</h3>
+              <p className="text-sm text-zinc-400 mb-5">
+                不需要会代码，按下面 3 步做完即可导入到你自己的 Notion。只用配置一次，后续可直接一键导入。
+              </p>
+
+              <div className="space-y-4">
+                <div className="rounded-xl border border-white/10 bg-black/40 p-4">
+                  <p className="text-xs text-zinc-400 mb-2">第 1 步：点击“连接 Notion”并授权</p>
+                  <p className="text-[11px] text-zinc-500 mb-3">
+                    会跳转到 Notion 官方授权页。选择你要导入的工作区，然后点“允许”即可。
+                  </p>
+                  <button
+                    type="button"
+                    disabled={notionGuideLoading}
+                    onClick={handleConnectNotion}
+                    className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-zinc-200 disabled:opacity-50"
+                  >
+                    {notionGuideLoading ? '处理中...' : '连接 Notion'}
+                  </button>
+                  {notionStatus?.connected && (
+                    <p className="text-xs text-emerald-400 mt-2">
+                      授权成功：{notionStatus.workspaceName || 'Notion Workspace'}
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/40 p-4">
+                  <p className="text-xs text-zinc-400 mb-2">第 2 步：填写 Notion Database ID</p>
+                  <p className="text-[11px] text-zinc-500 mb-2">
+                    打开你的 Notion 数据库页面，复制 URL 中最后一串长 ID（去掉前后的斜杠和问号参数）。
+                  </p>
+                  <input
+                    type="text"
+                    value={notionDatabaseId}
+                    onChange={(e) => setNotionDatabaseId(e.target.value)}
+                    placeholder="请输入 Notion Database ID"
+                    className="w-full rounded-lg border border-white/10 bg-black px-3 py-2 text-sm text-white outline-none focus:border-white/30"
+                  />
+                  <p className="text-[11px] text-zinc-500 mt-2">
+                    示例：`https://www.notion.so/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?v=...` 里的 `xxxxxxxx...`。
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleSaveNotionDatabase}
+                    disabled={notionGuideLoading}
+                    className="mt-3 rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-50"
+                  >
+                    {notionGuideLoading ? '保存中...' : '保存并继续'}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border border-amber-400/20 bg-amber-500/5 p-4">
+                  <p className="text-xs text-amber-300 mb-2">第 3 步：常见问题排查</p>
+                  <p className="text-[11px] text-zinc-400">
+                    1) 如果看到“客户端 ID 缺失”，说明系统管理员还没配置 Notion OAuth。
+                  </p>
+                  <p className="text-[11px] text-zinc-400">
+                    2) 如果提示“字段不匹配”，请确认数据库包含 Title、URL、Source、Category、Topics、HotScore、Summary、PublishAt。
+                  </p>
+                  <p className="text-[11px] text-zinc-400">
+                    3) 如果提示“未连接 Notion”，重新点一次“连接 Notion”再保存数据库 ID。
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsNotionGuideOpen(false)}
+                  className="text-sm text-zinc-400 hover:text-white"
+                >
+                  稍后再说
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <style>{`
         @keyframes metallicFlow {
