@@ -30,6 +30,7 @@ export default function App() {
   const [highlightedNewsId, setHighlightedNewsId] = useState<string | null>(null);
   const [top5TargetId, setTop5TargetId] = useState<string | null>(null);
   const [isFetching, setIsFetching] = useState(false);
+  const [fetchErrorMessage, setFetchErrorMessage] = useState<string | null>(null);
   const [aiSummary, setAiSummary] = useState<string[]>([]);
   const [actionFeedback, setActionFeedback] = useState<
     { id: string; message: string; tone?: 'success' | 'error' | 'info' } | null
@@ -87,8 +88,9 @@ export default function App() {
           const brief = await fetchDailyBrief();
           setNewsData(brief.news);
           setAiSummary(brief.summary);
+          setFetchErrorMessage(null);
         } catch {
-          // fetchDailyBrief 内部已经兜底 mock，这里不再额外处理
+          setFetchErrorMessage('抓取失败，请稍后重试');
         }
         setView('feed');
         setIsNotionGuideOpen(true);
@@ -163,6 +165,7 @@ export default function App() {
   const handleGetStarted = async () => {
     setView('loading');
     setIsFetching(true);
+    setFetchErrorMessage(null);
     setActiveCategory('Hot');
     setSearchQuery('');
     setHighlightedNewsId(null);
@@ -172,6 +175,12 @@ export default function App() {
       setNewsData(brief.news);
       setAiSummary(brief.summary);
       setView('feed');
+      setFetchErrorMessage(null);
+    } catch (error) {
+      setNewsData([]);
+      setAiSummary([]);
+      setView('feed');
+      setFetchErrorMessage(error instanceof Error ? error.message : '抓取失败，请稍后重试');
     } finally {
       setIsFetching(false);
     }
@@ -516,7 +525,10 @@ export default function App() {
                 ) : filteredNews.length === 0 ? (
                   <div className="text-center py-20">
                     <Search size={48} className="mx-auto text-zinc-700 mb-4" />
-                    <p className="text-zinc-500">未找到相关内容</p>
+                    <p className="text-zinc-500">{fetchErrorMessage ? '抓取失败' : '未找到相关内容'}</p>
+                    {fetchErrorMessage && (
+                      <p className="text-red-400 text-sm mt-2">{fetchErrorMessage}</p>
+                    )}
                     {searchQuery.trim() && (
                       <p className="text-zinc-600 text-sm mt-2">
                         已按标题、摘要、来源、分类和主题标签搜索 “{searchQuery.trim()}”

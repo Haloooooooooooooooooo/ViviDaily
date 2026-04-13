@@ -39,6 +39,8 @@ const SHANGHAI_TZ = 'Asia/Shanghai';
 const SOURCE_FETCH_LIMIT = 24;
 const FINAL_LIMIT = 30;
 const AI_REQUEST_TIMEOUT_MS = 8000;
+const MIN_HOT_SCORE = 8;
+const MIN_SUPPLEMENT_SCORE = 8;
 
 const IMPORTANT_ENTITIES = [
   'openai', 'google', 'anthropic', 'claude', 'gemini', 'deepseek', 'qwen', 'glm', 'kimi',
@@ -128,12 +130,24 @@ function isLikelyArticleUrl(url: string): boolean {
   return true;
 }
 
+function extractFirstHrefFromHtml(html: string): string {
+  if (!html) return '';
+  const match = html.match(/href\s*=\s*["']([^"']+)["']/i);
+  if (!match?.[1]) return '';
+  return normalizeUrl(match[1]);
+}
+
 function resolveItemUrl(item: Parser.Item, sourceUrl: string): string {
-  const extended = item as Parser.Item & { guid?: string; id?: string };
+  const extended = item as Parser.Item & { guid?: string; id?: string; description?: string; 'content:encoded'?: string };
+  const fromHtml = extractFirstHrefFromHtml(
+    `${item.content || ''}\n${item.contentSnippet || ''}\n${item.summary || ''}\n${extended.description || ''}\n${extended['content:encoded'] || ''}`,
+  );
+
   const candidates = [
     normalizeUrl((item.link || '').trim()),
     normalizeUrl((extended.guid || '').trim()),
     normalizeUrl((extended.id || '').trim()),
+    fromHtml,
   ].filter(Boolean);
 
   const sourceHost = (() => {
@@ -223,12 +237,12 @@ function extractTopics(text: string): string[] {
 }
 
 function buildDedupeKey(title: string, content: string): string {
+  // Use title-led key to avoid over-merging distinct stories under one entity/event.
+  // Keep a small entity suffix so exact same title from different sources still dedupes.
+  const titleCore = normalizeText(title).slice(0, 72);
   const text = normalizeText(`${title} ${content}`);
-  const entities = IMPORTANT_ENTITIES.filter((keyword) => text.includes(keyword.toLowerCase())).slice(0, 2);
-  const events = HOT_EVENT_WORDS.filter((keyword) => text.includes(keyword.toLowerCase())).slice(0, 1);
-  const key = [...entities, ...events].join('|');
-  if (key) return key;
-  return normalizeText(title).slice(0, 40);
+  const entity = IMPORTANT_ENTITIES.find((keyword) => text.includes(keyword.toLowerCase())) || '';
+  return entity ? `${titleCore}|${entity}` : titleCore;
 }
 
 function calculateHotScore(item: RawItem, source: SourceConfig): RankedItem | null {
@@ -254,7 +268,7 @@ function calculateHotScore(item: RawItem, source: SourceConfig): RankedItem | nu
   if (/(字节|百度|腾讯|阿里|华为|智谱|月之暗面)/i.test(title)) hotScore += 6;
   if (/(发布|开源|上线|升级|融资|收购|首发|突发)/i.test(title)) hotScore += 5;
   if (/(日报|周报|合集|回顾)/i.test(title)) hotScore -= 10;
-  if (hotScore < 15) return null;
+  if (hotScore < MIN_HOT_SCORE) return null;
 
   return {
     ...item,
@@ -318,7 +332,7 @@ function buildSupplementItems(
 
     supplements.push({
       ...item,
-      hotScore: Math.max(12, score),
+      hotScore: Math.max(MIN_SUPPLEMENT_SCORE, score),
       topics: extractTopics(text),
       category: buildCategory(text),
       dedupeKey,

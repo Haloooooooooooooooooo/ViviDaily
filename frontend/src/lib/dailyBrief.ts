@@ -1,7 +1,5 @@
-import { DAILY_BRIEF } from '../data/mockData';
 import type { DailyBrief, NewsItem } from '../types/news';
 
-const DELAY_MS = 2400;
 const REQUEST_TIMEOUT_MS = 18000;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:3102';
 
@@ -24,9 +22,10 @@ export async function fetchDailyBrief(): Promise<DailyBrief> {
 
     return data;
   } catch (error) {
-    console.warn('[dailyBrief] fallback to local mock data', error);
-    await new Promise((resolve) => window.setTimeout(resolve, DELAY_MS));
-    return DAILY_BRIEF;
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('抓取超时，请稍后重试');
+    }
+    throw new Error('抓取失败，请稍后重试');
   } finally {
     window.clearTimeout(timeout);
   }
