@@ -79,6 +79,15 @@ CORS_ALLOW_ORIGIN=https://vividaily.yourdomain.com
 - 确保 Notion Integration 已共享到目标数据库。
 - 配置日志与重启策略（PM2 / Docker / 平台托管）。
 
+补充（认证相关）：
+
+- Supabase Auth:
+  - `Site URL` = 前端正式域名（Vercel）
+  - `Redirect URLs` 至少包含 `https://<frontend-domain>` 与 `https://<frontend-domain>/*`
+- Notion OAuth:
+  - Notion 后台 Redirect URI 必须与后端 `NOTION_REDIRECT_URI` 完全一致（协议、域名、路径都一致）
+  - 线上建议统一使用 HTTPS 与正式 API 域名
+
 ## 6) 快速排障
 
 - 前端能开但无数据：检查 `VITE_API_BASE_URL` 与 `/api/daily-brief`。

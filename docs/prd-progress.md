@@ -1,6 +1,6 @@
 # ViviDaily PRD 进度
 
-> 最后更新：2026-04-12（登录门禁 + 同日缓存完成）
+> 最后更新：2026-04-13（Notion OAuth 体验修正 + 部署前配置清单补充）
 
 ## 一、当前正式实现口径
 
@@ -184,6 +184,11 @@ Top5 面向“昨天抓取到的全部新闻”，不是某个单独分类。
 - [✅] 登录门禁：未登录点击收藏/导入 Notion 弹出登录窗，登录后才可操作
 - [✅] 同日缓存：当日第一次点击 `Get Started` 后缓存结果，当天再次进入不重复抓取
 - [✅] 首次导入 Notion 引导：未连接/未配置数据库时自动弹出连接引导弹窗
+- [✅] Notion 授权回跳体验：OAuth 成功后回到 Feed，并自动重开 Notion 引导弹窗
+- [✅] Notion Database ID 兼容：支持粘贴完整 Notion 数据库 URL，后端自动提取正确 ID
+- [✅] 退出登录交互优化：退出后保持当前页面并弹出登录框，可直接切换账号
+- [✅] 部署模板补齐：新增 `frontend/vercel.json`、`frontend/.env.production.example`、`backend/.env.production.example`
+- [✅] 补充 Vercel 上线认证说明：新增 Supabase Auth（Site URL/Redirect URLs）与 Notion OAuth 回调一致性检查项
 
 ## 九、当前未完成
 
@@ -191,6 +196,7 @@ Top5 面向“昨天抓取到的全部新闻”，不是某个单独分类。
 - [✅] 接入真实 Notion 导出能力（后端 `POST /api/notion/export` + 前端导出按钮真实调用）
 - [ ] 清理剩余历史目录与过期文档
 - [ ] 评估面向其他用户开放时需要的部署、环境变量、鉴权与回调配置
+- [ ] 完成线上实际发布（当前阻塞：本机 npm cache 权限 `EPERM`，Vercel CLI 无法稳定执行）
 
 ## 十、下一步建议执行顺序
 
@@ -230,3 +236,42 @@ Top5 面向“昨天抓取到的全部新闻”，不是某个单独分类。
 - [✅] 评估正式部署方式、API 域名、跨域配置与 HTTPS（见 `docs/deploy-vercel.md`）
 - [✅] 评估用户级授权方案（Notion OAuth）并完成后端接口接入
 - [ ] 补充日志、错误监控与缓存策略
+
+## 十二、明日直接执行清单（按顺序）
+
+1. 完成前端部署到 Vercel（`frontend` 作为 Root Directory）。
+2. 完成后端部署到 Render/Railway（当前后端是长驻服务，不直接走 Vercel Functions）。
+3. 把前端环境变量 `VITE_API_BASE_URL` 改为线上后端 HTTPS 地址并重新部署前端。
+4. 把后端 `CORS_ALLOW_ORIGIN` 改为前端正式域名（不要再用 `*`）。
+5. 把 Notion OAuth 三件套改为线上值并验证回调：
+   - `NOTION_CLIENT_ID`
+   - `NOTION_CLIENT_SECRET`
+   - `NOTION_REDIRECT_URI=https://<后端域名>/api/notion/oauth/callback`
+6. 把 `FRONTEND_URL` 改为线上前端地址，确保 OAuth 回跳正确。
+7. 线上验收：注册/登录、抓取昨日新闻、连接 Notion、导入 Notion、重复导入提示。
+8. 清理旧目录 `ViviDaily-github` 与过期文档，减少后续协作误改风险。
+
+## 十三、Vercel 上线后认证与配置必须修改项
+
+### 前端（Vercel Project Environment Variables）
+
+- `VITE_API_BASE_URL=https://<你的后端域名>`
+- `VITE_SUPABASE_URL=<你的 Supabase URL>`
+- `VITE_SUPABASE_ANON_KEY=<你的 Supabase anon key>`
+
+### 后端（Render/Railway Environment Variables）
+
+- `CORS_ALLOW_ORIGIN=https://<你的前端域名>`
+- `FRONTEND_URL=https://<你的前端域名>`
+- `NOTION_EXPORT_MODE=user_oauth`
+- `NOTION_CLIENT_ID=<Notion Public Integration Client ID>`
+- `NOTION_CLIENT_SECRET=<Notion Public Integration Client Secret>`
+- `NOTION_REDIRECT_URI=https://<你的后端域名>/api/notion/oauth/callback`
+- `SUPABASE_URL=<你的 Supabase URL>`
+- `SUPABASE_ANON_KEY=<你的 Supabase anon key>`
+
+### 第三方控制台同步修改（非常关键）
+
+- Notion Integration 后台的 Redirect URI 必须与 `NOTION_REDIRECT_URI` 完全一致。
+- Supabase Auth URL 配置里补齐线上站点地址与回调地址（Site URL / Redirect URLs）。
+- 若已泄露过旧密钥（如 Notion Client Secret），上线前先 Rotate 再部署。

@@ -30,6 +30,8 @@
 - `VITE_SUPABASE_ANON_KEY=...`
 6. 点击 Deploy
 
+建议：可直接参考 `frontend/.env.production.example` 配置 Vercel 环境变量。
+
 ---
 
 ## 三、部署后端（推荐独立服务）
@@ -55,6 +57,8 @@ FRONTEND_URL=https://<你的前端域名>
 NOTION_API_KEY=...
 NOTION_DATABASE_ID=...
 ```
+
+建议：可直接参考 `backend/.env.production.example` 逐项填写生产环境变量。
 
 ---
 
@@ -92,3 +96,11 @@ NOTION_DATABASE_ID=...
 
 4. Notion 导出失败：
 - 检查数据库字段是否严格匹配最终版字段类型
+
+5. 登录成功但刷新后状态异常 / 授权回调异常：
+- 到 Supabase 控制台检查 Auth 配置
+- `Site URL` 设置为前端线上地址（如 `https://xxx.vercel.app`）
+- `Redirect URLs` 添加：
+  - `https://xxx.vercel.app`
+  - `https://xxx.vercel.app/*`
+- 确认前端环境变量 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY` 使用的是同一个项目
