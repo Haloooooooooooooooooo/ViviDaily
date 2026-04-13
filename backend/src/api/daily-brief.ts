@@ -34,7 +34,9 @@ interface AIResult {
   topics: string[];
 }
 
-const parser = new Parser();
+const parser = new Parser({
+  timeout: 8000,
+});
 const SHANGHAI_TZ = 'Asia/Shanghai';
 const SOURCE_FETCH_LIMIT = 24;
 const FINAL_LIMIT = 30;
@@ -423,9 +425,6 @@ async function batchProcessWithAI(items: RankedItem[], config: AIConfig): Promis
     })));
 
     outputs.forEach((x) => result.set(x.url, x.value));
-    if (i + batchSize < items.length) {
-      await new Promise((r) => setTimeout(r, 1000));
-    }
   }
 
   return result;
@@ -524,7 +523,7 @@ export async function buildDailyBrief(): Promise<DailyBriefResponse> {
   const aiConfig = getAIConfig();
   const aiResults =
     aiConfig.apiKey
-      ? await batchProcessWithAI(deduped.slice(0, Math.min(10, deduped.length)), aiConfig)
+      ? await batchProcessWithAI(deduped.slice(0, Math.min(5, deduped.length)), aiConfig)
       : new Map<string, AIResult>();
 
   const news = deduped.map((item, index) => toFrontendItem(item, aiResults.get(item.url), index));

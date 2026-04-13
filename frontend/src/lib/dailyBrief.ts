@@ -1,6 +1,6 @@
 import type { DailyBrief, NewsItem } from '../types/news';
 
-const REQUEST_TIMEOUT_MS = 18000;
+const REQUEST_TIMEOUT_MS = 45000;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:3102';
 
 export async function fetchDailyBrief(): Promise<DailyBrief> {
