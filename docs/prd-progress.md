@@ -1,6 +1,6 @@
 # ViviDaily PRD 进度
 
-> 最后更新：2026-04-13（Notion OAuth 体验修正 + 部署前配置清单补充）
+> 最后更新：2026-04-13（请求超时优化 + Notion OAuth 体验修正 + 部署前配置清单补充）
 
 ## 一、当前正式实现口径
 
@@ -189,6 +189,7 @@ Top5 面向“昨天抓取到的全部新闻”，不是某个单独分类。
 - [✅] 退出登录交互优化：退出后保持当前页面并弹出登录框，可直接切换账号
 - [✅] 部署模板补齐：新增 `frontend/vercel.json`、`frontend/.env.production.example`、`backend/.env.production.example`
 - [✅] 补充 Vercel 上线认证说明：新增 Supabase Auth（Site URL/Redirect URLs）与 Notion OAuth 回调一致性检查项
+- [✅] 请求超时优化：后端 AI 请求 8s 超时，前端 API 请求 18s 超时，避免长时间阻塞
 
 ## 九、当前未完成
 
