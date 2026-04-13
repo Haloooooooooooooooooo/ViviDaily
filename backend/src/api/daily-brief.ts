@@ -109,6 +109,59 @@ function normalizeUrl(raw: string): string {
   return value;
 }
 
+function isFeedLikeUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    lower.endsWith('/rss') ||
+    lower.includes('/rss/') ||
+    lower.includes('feed.xml') ||
+    lower.includes('/feed') ||
+    lower.includes('backend.php') ||
+    lower.endsWith('.xml')
+  );
+}
+
+function isLikelyArticleUrl(url: string): boolean {
+  if (!url) return false;
+  if (!/^https?:\/\//i.test(url)) return false;
+  if (isFeedLikeUrl(url)) return false;
+  return true;
+}
+
+function resolveItemUrl(item: Parser.Item, sourceUrl: string): string {
+  const extended = item as Parser.Item & { guid?: string; id?: string };
+  const candidates = [
+    normalizeUrl((item.link || '').trim()),
+    normalizeUrl((extended.guid || '').trim()),
+    normalizeUrl((extended.id || '').trim()),
+  ].filter(Boolean);
+
+  const sourceHost = (() => {
+    try {
+      return new URL(sourceUrl).host;
+    } catch {
+      return '';
+    }
+  })();
+
+  for (const candidate of candidates) {
+    if (!isLikelyArticleUrl(candidate)) continue;
+    try {
+      const host = new URL(candidate).host;
+      // Prefer in-domain article links first.
+      if (sourceHost && host === sourceHost) return candidate;
+    } catch {
+      // ignore invalid URL here, filtered by normalize/regex anyway
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (isLikelyArticleUrl(candidate)) return candidate;
+  }
+
+  return '';
+}
+
 function formatDate(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: SHANGHAI_TZ,
@@ -339,10 +392,10 @@ async function fetchSource(source: SourceConfig): Promise<RawItem[]> {
   try {
     const feed = await parser.parseURL(source.url);
     return feed.items
-      .map((item) => {
-        const title = sanitizeText((item.title || '').trim());
-        const url = normalizeUrl((item.link || item.guid || '').trim());
-        if (!title || !url) return null;
+        .map((item) => {
+          const title = sanitizeText((item.title || '').trim());
+          const url = resolveItemUrl(item, source.url);
+          if (!title || !url) return null;
 
         return {
           title,
