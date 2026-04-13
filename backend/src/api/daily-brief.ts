@@ -36,8 +36,8 @@ interface AIResult {
 
 const parser = new Parser();
 const SHANGHAI_TZ = 'Asia/Shanghai';
-const SOURCE_FETCH_LIMIT = 12;
-const FINAL_LIMIT = 20;
+const SOURCE_FETCH_LIMIT = 24;
+const FINAL_LIMIT = 30;
 const AI_REQUEST_TIMEOUT_MS = 8000;
 
 const IMPORTANT_ENTITIES = [
@@ -291,6 +291,43 @@ function dedupeBySignature(items: RankedItem[]): RankedItem[] {
   );
 }
 
+function buildSupplementItems(
+  rawItems: RawItem[],
+  selectedKeys: Set<string>,
+  selectedUrls: Set<string>,
+): RankedItem[] {
+  const supplements: RankedItem[] = [];
+
+  for (const item of rawItems) {
+    const title = sanitizeText(item.title);
+    const content = sanitizeText(item.content);
+    const text = normalizeText(`${title} ${content}`);
+    if (!title || !item.url) continue;
+    if (EXCLUDE_WORDS.some((keyword) => normalizeText(title).includes(keyword))) continue;
+
+    const dedupeKey = buildDedupeKey(title, content);
+    if (selectedKeys.has(dedupeKey)) continue;
+    if (selectedUrls.has(item.url)) continue;
+
+    const source = API_RSS_SOURCES.find((x) => x.name === item.source);
+    const base = source ? Math.round(source.priority * 10 * AUTHORITY_WEIGHTS[source.authorityLevel]) : 10;
+    const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
+    const entityHits = IMPORTANT_ENTITIES.filter((keyword) => text.includes(keyword)).length;
+    const eventHits = HOT_EVENT_WORDS.filter((keyword) => text.includes(keyword)).length;
+    const score = base + aiHits * 3 + entityHits * 2 + eventHits * 2;
+
+    supplements.push({
+      ...item,
+      hotScore: Math.max(12, score),
+      topics: extractTopics(text),
+      category: buildCategory(text),
+      dedupeKey,
+    });
+  }
+
+  return dedupeBySignature(supplements);
+}
+
 function getAIConfig(): AIConfig {
   return {
     apiKey: process.env.AI_API_KEY || '',
@@ -460,7 +497,15 @@ export async function buildDailyBrief(): Promise<DailyBriefResponse> {
     })
     .filter((item): item is RankedItem => Boolean(item));
 
-  const deduped = dedupeBySignature(applyCrossPlatformBonus(ranked)).slice(0, FINAL_LIMIT);
+  const primary = dedupeBySignature(applyCrossPlatformBonus(ranked)).slice(0, FINAL_LIMIT);
+
+  let deduped = primary;
+  if (primary.length < FINAL_LIMIT) {
+    const selectedKeys = new Set(primary.map((x) => x.dedupeKey));
+    const selectedUrls = new Set(primary.map((x) => x.url));
+    const supplements = buildSupplementItems(yesterdayItems, selectedKeys, selectedUrls);
+    deduped = [...primary, ...supplements].slice(0, FINAL_LIMIT);
+  }
 
   const aiConfig = getAIConfig();
   const aiResults =
