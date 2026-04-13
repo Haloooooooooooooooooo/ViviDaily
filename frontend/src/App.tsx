@@ -17,6 +17,7 @@ import { apiLogin, apiRegister, apiLogout, getStoredAuth, storeAuth, clearAuth }
 import type { Category, NewsItem, View } from './types/news';
 
 const NOTION_GUIDE_ACK_KEY = 'vividaily_notion_guide_ack_v1';
+const NOTION_OAUTH_RETURN_KEY = 'vividaily_notion_oauth_return';
 
 export default function App() {
   const [view, setView] = useState<View>('landing');
@@ -78,9 +79,11 @@ export default function App() {
     const run = async () => {
       const params = new URLSearchParams(window.location.search);
       const oauth = params.get('notion_oauth');
-      if (!oauth) return;
+      const pendingOAuthReturn =
+        typeof window !== 'undefined' && window.localStorage.getItem(NOTION_OAUTH_RETURN_KEY) === '1';
+      if (!oauth && !pendingOAuthReturn) return;
 
-      if (oauth === 'success') {
+      if (oauth === 'success' || pendingOAuthReturn) {
         setActionFeedback({ id: 'auth', message: 'Notion 授权成功，请设置数据库 ID 后导出', tone: 'success' });
 
         // OAuth 回跳后恢复到 Feed，再打开 Notion 引导弹窗，避免落回 Landing。
@@ -94,10 +97,19 @@ export default function App() {
         }
         setView('feed');
         setIsNotionGuideOpen(true);
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(NOTION_OAUTH_RETURN_KEY);
+        }
       } else if (oauth === 'failed') {
         setActionFeedback({ id: 'auth', message: 'Notion 授权失败，请重试', tone: 'error' });
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(NOTION_OAUTH_RETURN_KEY);
+        }
       } else if (oauth === 'invalid_state' || oauth === 'invalid_callback') {
         setActionFeedback({ id: 'auth', message: 'Notion 授权状态无效，请重新发起授权', tone: 'error' });
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(NOTION_OAUTH_RETURN_KEY);
+        }
       }
 
       const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
@@ -316,9 +328,15 @@ export default function App() {
         setActionFeedback({ id: 'auth', message: result.error || '无法发起 Notion 授权', tone: 'error' });
         return;
       }
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(NOTION_OAUTH_RETURN_KEY, '1');
+      }
       window.location.href = result.authUrl;
     } catch {
       setActionFeedback({ id: 'auth', message: '发起 Notion 授权失败', tone: 'error' });
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(NOTION_OAUTH_RETURN_KEY);
+      }
     } finally {
       setNotionGuideLoading(false);
     }
