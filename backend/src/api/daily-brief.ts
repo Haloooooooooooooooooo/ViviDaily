@@ -38,6 +38,7 @@ const parser = new Parser();
 const SHANGHAI_TZ = 'Asia/Shanghai';
 const SOURCE_FETCH_LIMIT = 12;
 const FINAL_LIMIT = 20;
+const AI_REQUEST_TIMEOUT_MS = 8000;
 
 const IMPORTANT_ENTITIES = [
   'openai', 'google', 'anthropic', 'claude', 'gemini', 'deepseek', 'qwen', 'glm', 'kimi',
@@ -246,6 +247,8 @@ function getAIConfig(): AIConfig {
 }
 
 async function callAI(prompt: string, config: AIConfig): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
   const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: {
@@ -258,6 +261,9 @@ async function callAI(prompt: string, config: AIConfig): Promise<string> {
       temperature: 0.3,
       max_tokens: 280,
     }),
+    signal: controller.signal,
+  }).finally(() => {
+    clearTimeout(timeout);
   });
 
   if (!response.ok) {

@@ -2,11 +2,17 @@ import { DAILY_BRIEF } from '../data/mockData';
 import type { DailyBrief, NewsItem } from '../types/news';
 
 const DELAY_MS = 2400;
+const REQUEST_TIMEOUT_MS = 18000;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:3102';
 
 export async function fetchDailyBrief(): Promise<DailyBrief> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
-    const response = await fetch(`${API_BASE_URL}/api/daily-brief`);
+    const response = await fetch(`${API_BASE_URL}/api/daily-brief`, {
+      signal: controller.signal,
+    });
     if (!response.ok) {
       throw new Error(`Request failed with status ${response.status}`);
     }
@@ -21,6 +27,8 @@ export async function fetchDailyBrief(): Promise<DailyBrief> {
     console.warn('[dailyBrief] fallback to local mock data', error);
     await new Promise((resolve) => window.setTimeout(resolve, DELAY_MS));
     return DAILY_BRIEF;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
