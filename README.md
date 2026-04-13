@@ -300,7 +300,35 @@ cd frontend && npm run dev
 
 ## 部署
 
-详见 [docs/deployment-env.md](docs/deployment-env.md)
+### 部署架构
+
+推荐部署方案：
+- **前端**：Vercel（静态托管 + SPA 路由）
+- **后端**：Render / Railway（长驻 Node 服务）
+
+### 部署步骤
+
+1. **前端部署到 Vercel**
+   - Root Directory 设置为 `frontend`
+   - 环境变量参考 `frontend/.env.production.example`
+
+2. **后端部署到 Render/Railway**
+   - 环境变量参考 `backend/.env.production.example`
+
+3. **关键配置项**
+
+| 配置 | 说明 |
+|------|------|
+| `CORS_ALLOW_ORIGIN` | 设置为前端域名，不要用 `*` |
+| `NOTION_REDIRECT_URI` | 必须与 Notion Integration 后台一致 |
+| `FRONTEND_URL` | OAuth 回跳地址，必须与实际域名一致 |
+
+4. **第三方配置同步**
+
+- Notion Integration 后台的 Redirect URI 必须与 `NOTION_REDIRECT_URI` 完全一致
+- Supabase Auth 配置里补齐 Site URL 和 Redirect URLs
+
+详见 [docs/deployment-env.md](docs/deployment-env.md) 和 [docs/deploy-vercel.md](docs/deploy-vercel.md)
 
 ## 开发进度
 
