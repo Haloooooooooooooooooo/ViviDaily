@@ -10,6 +10,10 @@ export const API_RSS_SOURCES: SourceConfig[] = [
   // 36Kr AI-focused feed via RSSHub search route (avoid generic 36Kr all-news feed)
   { name: '36Kr AI', url: 'https://rsshub.app/36kr/search/articles/人工智能', priority: 0.94, authorityLevel: 'headMedia' },
 
+  // 新增可用源（2026-04-14 测试通过）
+  { name: '钛媒体', url: 'https://www.tmtpost.com/rss', priority: 0.93, authorityLevel: 'headMedia' },
+  { name: '少数派', url: 'https://sspai.com/feed', priority: 0.85, authorityLevel: 'generalMedia' },
+
   { name: 'IT之家', url: 'https://www.ithome.com/rss', priority: 0.9, authorityLevel: 'generalMedia' },
   { name: '极客公园', url: 'https://www.geekpark.net/rss', priority: 0.9, authorityLevel: 'generalMedia' },
   { name: '爱范儿', url: 'https://www.ifanr.com/feed', priority: 0.88, authorityLevel: 'generalMedia' },
