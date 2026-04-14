@@ -44,7 +44,8 @@ const SOURCE_FETCH_LIMIT = 24;
 const FINAL_LIMIT = 30;
 const AI_REQUEST_TIMEOUT_MS = 8000;
 const MIN_HOT_SCORE = 8;
-const MIN_SUPPLEMENT_SCORE = 12;
+const MIN_SUPPLEMENT_SCORE = 6;
+const TARGET_MIN_NEWS = 18;
 const CORE_SOURCE_NAMES = new Set([
   '量子位',
   '机器之心',
@@ -525,8 +526,9 @@ function buildSupplementItems(
     const entityHits = entities.length;
     const eventHits = events.length;
     if (!isCoreSource) {
-      if (aiHits === 0) continue;
-      if (entityHits + eventHits + aiHits < 2) continue;
+      const titleHasAICue = /(ai|人工智能|大模型|模型|agent|智能体|openai|claude|gemini|deepseek|qwen|glm)/i.test(title);
+      if (aiHits === 0 && entityHits === 0 && !titleHasAICue) continue;
+      if (entityHits + eventHits + aiHits < 1 && !titleHasAICue) continue;
     }
     const score =
       base +
@@ -541,6 +543,53 @@ function buildSupplementItems(
     supplements.push({
       ...item,
       hotScore: score,
+      topics: extractTopics(text),
+      category: buildCategory(text),
+      dedupeKey,
+      clusterKey: buildClusterKey(title, content),
+    });
+  }
+
+  return dedupeBySignature(supplements);
+}
+
+function buildLooseSupplementItems(
+  rawItems: RawItem[],
+  selectedKeys: Set<string>,
+  selectedUrls: Set<string>,
+): RankedItem[] {
+  const supplements: RankedItem[] = [];
+
+  for (const item of rawItems) {
+    const title = sanitizeText(item.title);
+    const content = sanitizeText(item.content);
+    const text = normalizeText(`${title} ${content}`);
+    if (!title || !item.url) continue;
+
+    const dedupeKey = buildDedupeKey(title, content);
+    if (selectedKeys.has(dedupeKey) || selectedUrls.has(item.url)) continue;
+    if (EXCLUDE_WORDS.some((keyword) => normalizeText(title).includes(keyword))) continue;
+
+    const source = API_RSS_SOURCES.find((x) => x.name === item.source);
+    const base = source ? Math.round(source.priority * 10 * AUTHORITY_WEIGHTS[source.authorityLevel]) : 10;
+    const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
+    const entities = normalizeEntities(text);
+    const events = normalizeEvents(text);
+    const titleHasAICue = /(ai|人工智能|大模型|模型|agent|智能体|openai|claude|gemini|deepseek|qwen|glm|字节|百度|腾讯|阿里)/i.test(title);
+
+    if (aiHits === 0 && entities.length === 0 && !titleHasAICue) continue;
+
+    const score =
+      base +
+      aiHits * 2 +
+      entities.reduce((sum, entity) => sum + Math.max(2, getEntityWeight(entity) - 6), 0) +
+      events.length * 2 +
+      getContentDensityBonus(content) +
+      detectClickbait(title, content);
+
+    supplements.push({
+      ...item,
+      hotScore: Math.max(MIN_SUPPLEMENT_SCORE, score),
       topics: extractTopics(text),
       category: buildCategory(text),
       dedupeKey,
@@ -668,6 +717,12 @@ function buildFallbackSummary(item: RankedItem, topics: string[]): string {
   return `${item.source} 昨日报道：${snippet}${clean.length > 90 ? '...' : ''}`;
 }
 
+function toDisplayHotScore(raw: number, rankIndex: number): number {
+  const scaled = Math.round(raw * 1.6 + 28);
+  const rankBonus = Math.max(0, 8 - rankIndex);
+  return Math.max(58, Math.min(99, scaled + rankBonus));
+}
+
 async function fetchSource(source: SourceConfig): Promise<RawItem[]> {
   if (source.enabled === false) return [];
   try {
@@ -708,7 +763,7 @@ function toFrontendItem(item: RankedItem, aiResult: AIResult | undefined, index:
     Source: item.source,
     Category: category,
     Topics: topics,
-    HotScore: item.hotScore,
+    HotScore: toDisplayHotScore(item.hotScore, index),
     Summary: summary,
     PublishAt: formatDateTime(new Date(item.publishedAt)),
     originalUrl: item.url,
@@ -750,6 +805,13 @@ export async function buildDailyBrief(): Promise<DailyBriefResponse> {
     const selectedUrls = new Set(primary.map((x) => x.url));
     const supplements = buildSupplementItems(yesterdayItems, selectedKeys, selectedUrls);
     deduped = [...primary, ...supplements].slice(0, FINAL_LIMIT);
+
+    if (deduped.length < TARGET_MIN_NEWS) {
+      const secondSelectedKeys = new Set(deduped.map((x) => x.dedupeKey));
+      const secondSelectedUrls = new Set(deduped.map((x) => x.url));
+      const looseSupplements = buildLooseSupplementItems(yesterdayItems, secondSelectedKeys, secondSelectedUrls);
+      deduped = dedupeBySignature([...deduped, ...looseSupplements]).slice(0, FINAL_LIMIT);
+    }
   }
 
   const aiConfig = getAIConfig();
