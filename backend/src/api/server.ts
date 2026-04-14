@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import http from 'http';
-import { buildDailyBrief } from './daily-brief';
+import { buildDailyBrief, buildDailyBriefDebug } from './daily-brief';
 import { exportNewsToNotion, isValidExportPayload } from './notion-export';
 import { isSupabaseAdminReady, isSupabaseReady, signUp, signIn, getUser, signOut } from '../lib/supabase';
 import {
@@ -117,6 +117,17 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       console.error('[api] daily brief failed', error);
       sendJson(res, 500, { error: 'Failed to build daily brief' });
+    }
+    return;
+  }
+
+  if (pathname === '/api/daily-brief/debug' && req.method === 'GET') {
+    try {
+      const data = await buildDailyBriefDebug();
+      sendJson(res, 200, data);
+    } catch (error) {
+      console.error('[api] daily brief debug failed', error);
+      sendJson(res, 500, { error: 'Failed to build daily brief debug payload' });
     }
     return;
   }

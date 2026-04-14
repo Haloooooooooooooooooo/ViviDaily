@@ -2,7 +2,9 @@ import Parser from 'rss-parser';
 import { API_RSS_SOURCES } from './sources';
 import {
   AUTHORITY_WEIGHTS,
+  type DailyBriefDebugResponse,
   type DailyBriefResponse,
+  type DailyBriefSourceDebug,
   type FrontendCategory,
   type FrontendNewsItem,
   type SourceConfig,
@@ -432,8 +434,9 @@ function calculateHotScore(item: RawItem, source: SourceConfig): RankedItem | nu
   const entityHits = entities.length;
   const eventHits = events.length;
   const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
+  const titleHasAICue = /(ai|人工智能|大模型|模型|agent|智能体|openai|claude|gemini|deepseek|qwen|glm|字节|百度|腾讯|阿里|智谱|kimi)/i.test(title);
   const lowSignalHits = LOW_SIGNAL_WORDS.filter((keyword) => text.includes(keyword)).length;
-  if (entityHits === 0 && eventHits === 0 && aiHits === 0) return null;
+  if (entityHits === 0 && eventHits === 0 && aiHits === 0 && !(isCoreSource && titleHasAICue)) return null;
 
   if (!isCoreSource) {
     if (aiHits === 0) return null;
@@ -881,12 +884,86 @@ function buildPerSourceCandidatePool(yesterdayItems: RawItem[]): RankedItem[] {
   return pooled;
 }
 
-export async function buildDailyBrief(): Promise<DailyBriefResponse> {
+function buildPerSourceCandidatePoolWithDebug(yesterdayItems: RawItem[], fetchedGroups: RawItem[][]): {
+  pooled: RankedItem[];
+  perSource: DailyBriefSourceDebug[];
+} {
+  const grouped = new Map<string, RawItem[]>();
+  const fetchedCountMap = new Map<string, number>();
+
+  API_RSS_SOURCES.forEach((source, index) => {
+    fetchedCountMap.set(source.name, fetchedGroups[index]?.length || 0);
+  });
+
+  for (const item of yesterdayItems) {
+    const list = grouped.get(item.source) || [];
+    list.push(item);
+    grouped.set(item.source, list);
+  }
+
+  const pooled: RankedItem[] = [];
+  const perSource: DailyBriefSourceDebug[] = [];
+
+  for (const source of API_RSS_SOURCES) {
+    const sourceItems = grouped.get(source.name) || [];
+    const strictRanked = sourceItems
+      .map((item) => calculateHotScore(item, source))
+      .filter((item): item is RankedItem => Boolean(item));
+
+    const strictDeduped = dedupeBySignature(strictRanked);
+    let selected = strictDeduped.slice(0, PER_SOURCE_TARGET_MAX);
+
+    let supplementCount = 0;
+    let looseSupplementCount = 0;
+    let lastChanceCount = 0;
+
+    if (selected.length < PER_SOURCE_TARGET_MIN) {
+      const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
+      const selectedUrls = new Set(selected.map((x) => x.url));
+      const supplements = buildSupplementItems(sourceItems, selectedKeys, selectedUrls);
+      supplementCount = supplements.length;
+      selected = dedupeBySignature([...selected, ...supplements]).slice(0, PER_SOURCE_TARGET_MAX);
+    }
+
+    if (selected.length < PER_SOURCE_TARGET_MIN) {
+      const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
+      const selectedUrls = new Set(selected.map((x) => x.url));
+      const looseSupplements = buildLooseSupplementItems(sourceItems, selectedKeys, selectedUrls);
+      looseSupplementCount = looseSupplements.length;
+      selected = dedupeBySignature([...selected, ...looseSupplements]).slice(0, PER_SOURCE_TARGET_MAX);
+    }
+
+    if (selected.length < PER_SOURCE_TARGET_MIN) {
+      const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
+      const selectedUrls = new Set(selected.map((x) => x.url));
+      const lastChanceItems = buildLastChanceItems(sourceItems, selectedKeys, selectedUrls);
+      lastChanceCount = lastChanceItems.length;
+      selected = dedupeBySignature([...selected, ...lastChanceItems]).slice(0, PER_SOURCE_TARGET_MAX);
+    }
+
+    pooled.push(...selected);
+    perSource.push({
+      source: source.name,
+      fetchedCount: fetchedCountMap.get(source.name) || 0,
+      yesterdayCount: sourceItems.length,
+      strictRankedCount: strictDeduped.length,
+      supplementCount,
+      looseSupplementCount,
+      lastChanceCount,
+      selectedCount: selected.length,
+      finalCount: 0,
+    });
+  }
+
+  return { pooled, perSource };
+}
+
+async function buildDailyBriefBase(withDebug = false): Promise<DailyBriefResponse | DailyBriefDebugResponse> {
   const rawGroups = await Promise.all(API_RSS_SOURCES.map((source) => fetchSource(source)));
   const rawItems = rawGroups.flat();
   const yesterdayItems = rawItems.filter((item) => isYesterdayInShanghai(item.publishedAt));
 
-  const rankedPool = buildPerSourceCandidatePool(yesterdayItems);
+  const { pooled: rankedPool, perSource } = buildPerSourceCandidatePoolWithDebug(yesterdayItems, rawGroups);
   const primary = dedupeBySignature(applyCrossPlatformBonus(rankedPool)).slice(0, FINAL_LIMIT);
 
   let deduped = primary;
@@ -911,6 +988,15 @@ export async function buildDailyBrief(): Promise<DailyBriefResponse> {
     }
   }
 
+  const finalCountBySource = new Map<string, number>();
+  for (const item of deduped) {
+    finalCountBySource.set(item.source, (finalCountBySource.get(item.source) || 0) + 1);
+  }
+
+  perSource.forEach((entry) => {
+    entry.finalCount = finalCountBySource.get(entry.source) || 0;
+  });
+
   const aiConfig = getAIConfig();
   const aiResults =
     aiConfig.apiKey
@@ -926,11 +1012,37 @@ export async function buildDailyBrief(): Promise<DailyBriefResponse> {
     newsId: item.id,
   }));
 
-  return {
+  const base: DailyBriefResponse = {
     news,
     top5,
     summary: buildSummaryBullets(news),
     date: getYesterdayDateString(),
     total: news.length,
   };
+
+  if (!withDebug) {
+    return base;
+  }
+
+  const debugPayload: DailyBriefDebugResponse = {
+    ...base,
+    debug: {
+      perSource,
+      rawTotal: rawItems.length,
+      yesterdayTotal: yesterdayItems.length,
+      candidatePoolTotal: rankedPool.length,
+      primaryTotal: primary.length,
+      finalTotal: deduped.length,
+    },
+  };
+
+  return debugPayload;
+}
+
+export async function buildDailyBrief(): Promise<DailyBriefResponse> {
+  return buildDailyBriefBase(false) as Promise<DailyBriefResponse>;
+}
+
+export async function buildDailyBriefDebug(): Promise<DailyBriefDebugResponse> {
+  return buildDailyBriefBase(true) as Promise<DailyBriefDebugResponse>;
 }

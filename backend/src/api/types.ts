@@ -26,6 +26,29 @@ export interface DailyBriefResponse {
   total: number;
 }
 
+export interface DailyBriefSourceDebug {
+  source: string;
+  fetchedCount: number;
+  yesterdayCount: number;
+  strictRankedCount: number;
+  supplementCount: number;
+  looseSupplementCount: number;
+  lastChanceCount: number;
+  selectedCount: number;
+  finalCount: number;
+}
+
+export interface DailyBriefDebugResponse extends DailyBriefResponse {
+  debug: {
+    perSource: DailyBriefSourceDebug[];
+    rawTotal: number;
+    yesterdayTotal: number;
+    candidatePoolTotal: number;
+    primaryTotal: number;
+    finalTotal: number;
+  };
+}
+
 export type AuthorityLevel = 'official' | 'headMedia' | 'generalMedia';
 
 export interface SourceConfig {
