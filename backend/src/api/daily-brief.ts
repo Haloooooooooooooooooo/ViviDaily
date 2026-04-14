@@ -1,5 +1,5 @@
 import Parser from 'rss-parser';
-import { API_RSS_SOURCES } from './sources';
+import { ACTIVE_API_RSS_SOURCES, API_RSS_SOURCE_MAP } from './sources';
 import {
   AUTHORITY_WEIGHTS,
   type DailyBriefDebugResponse,
@@ -50,6 +50,34 @@ const MIN_SUPPLEMENT_SCORE = 4;
 const TARGET_MIN_NEWS = 30;
 const PER_SOURCE_TARGET_MIN = 6;
 const PER_SOURCE_TARGET_MAX = 10;
+const CHINESE_SOURCE_NAMES = new Set([
+  '量子位',
+  '机器之心',
+  '新智元',
+  'InfoQ',
+  'RadarAI',
+  '雷锋网AI',
+  '36Kr',
+  '钛媒体',
+  '少数派',
+  'IT之家',
+  '爱范儿',
+]);
+const CHINESE_VERTICAL_AI_SOURCE_NAMES = new Set([
+  '量子位',
+  '机器之心',
+  '新智元',
+  'RadarAI',
+  '雷锋网AI',
+]);
+const CHINESE_GENERAL_SOURCE_NAMES = new Set([
+  'InfoQ',
+  '36Kr',
+  '钛媒体',
+  '少数派',
+  'IT之家',
+  '爱范儿',
+]);
 const CORE_SOURCE_NAMES = new Set([
   '量子位',
   '机器之心',
@@ -57,8 +85,28 @@ const CORE_SOURCE_NAMES = new Set([
   'InfoQ',
   'RadarAI',
   '雷锋网AI',
-  '36Kr AI',
+  'OpenAI News',
+  'DeepMind Blog',
+  'Google AI Blog',
+  'Hugging Face Blog',
+  'Berkeley BAIR',
+  'MIT Tech Review',
+  'TechCrunch AI',
+  'VentureBeat AI',
+  'Ars Technica AI',
 ]);
+
+function isChineseSourceName(sourceName: string): boolean {
+  return CHINESE_SOURCE_NAMES.has(sourceName);
+}
+
+function isChineseVerticalAISource(sourceName: string): boolean {
+  return CHINESE_VERTICAL_AI_SOURCE_NAMES.has(sourceName);
+}
+
+function isChineseGeneralSource(sourceName: string): boolean {
+  return CHINESE_GENERAL_SOURCE_NAMES.has(sourceName);
+}
 
 const IMPORTANT_ENTITIES = [
   'openai', 'google', 'anthropic', 'claude', 'gemini', 'deepseek', 'qwen', 'glm', 'kimi',
@@ -68,7 +116,7 @@ const HOT_EVENT_WORDS = [
   '发布', '开源', '上线', '升级', '融资', '收购', '合作', '首发', '突发', 'agent', '推理', '模型', '多模态',
   '芯片', '算力', '安全', '监管', '政策', '产品',
 ];
-const EXCLUDE_WORDS = ['日报', '周报', '月报', '合集', '回顾', '招聘', '活动', '课程', '直播'];
+const EXCLUDE_WORDS = ['早报', '午报', '日报', '周报', '月报', '榜单', '合集', '回顾', '招聘', '活动', '课程', '直播'];
 const LOW_SIGNAL_WORDS = ['股价', '财报', '参数', '售价', '评测', '开箱'];
 const CLICKBAIT_WORDS = ['重磅', '震惊', '终于', '刚刚', '大动作', '大消息', '要变天', '彻底', '完全', '颠覆'];
 const TITLE_STOP_WORDS = new Set([
@@ -350,16 +398,42 @@ function formatDateTime(date: Date): string {
   }).format(date);
 }
 
+function getRecentDateStrings(days: number): Set<string> {
+  const dates = new Set<string>();
+  const now = new Date();
+
+  for (let i = 1; i <= days; i += 1) {
+    const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+    dates.add(formatDate(date));
+  }
+
+  return dates;
+}
+
+function getCurrentWindowLabel(): string {
+  return getYesterdayDateString();
+}
+
+function getTodayDateString(): string {
+  return formatDate(new Date());
+}
+
 function getYesterdayDateString(): string {
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   return formatDate(yesterday);
 }
 
-function isYesterdayInShanghai(value: string): boolean {
+function getShanghaiDateString(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return formatDate(date);
+}
+
+function isWithinCurrentWindowInShanghai(value: string): boolean {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return false;
-  return formatDate(date) === getYesterdayDateString();
+  return getRecentDateStrings(1).has(formatDate(date));
 }
 
 function resolveContent(item: Parser.Item): string {
@@ -404,6 +478,50 @@ function buildDedupeKey(title: string, content: string): string {
   return [entities, titleTokens, contentTokens].filter(Boolean).join('||') || normalizeText(title).slice(0, 96);
 }
 
+function hasStrongAICue(title: string, content: string): boolean {
+  const text = normalizeText(`${title} ${content}`);
+  const titleNormalized = normalizeText(title);
+  const entityHits = normalizeEntities(text).length;
+  const eventHits = normalizeEvents(text).length;
+  const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
+
+  const strongTitleCue = /(openai|claude|anthropic|google|gemini|deepmind|deepseek|qwen|glm|kimi|hugging\s*face|llm|ai|人工智能|大模型|多模态|推理|智能体|agent|机器学习|生成式|算力|芯片|自动驾驶|机器人)/i.test(
+    title,
+  );
+  const strongContentCue = /(openai|claude|anthropic|google|gemini|deepmind|deepseek|qwen|glm|kimi|hugging\s*face|llm|ai|人工智能|大模型|多模态|推理|智能体|agent|机器学习|生成式|算力|芯片|自动驾驶|机器人)/i.test(
+    text,
+  );
+  const weakButCommonNoise = /(vision pro|iphone|ipad|macbook|汽车|手机|家电|app store|微信|微博|小红书|游戏|影视|相机)/i.test(
+    titleNormalized,
+  );
+
+  if (strongTitleCue && (entityHits >= 1 || aiHits >= 1 || eventHits >= 1)) return true;
+  if (entityHits >= 2) return true;
+  if (aiHits >= 2) return true;
+  if (strongContentCue && entityHits >= 1) return true;
+  if (weakButCommonNoise && aiHits === 0 && entityHits === 0) return false;
+  return false;
+}
+
+function hasModerateAICue(title: string, content: string): boolean {
+  if (hasStrongAICue(title, content)) return true;
+
+  const text = normalizeText(`${title} ${content}`);
+  const entityHits = normalizeEntities(text).length;
+  const eventHits = normalizeEvents(text).length;
+  const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
+  const titleHasAICue = /(ai|人工智能|大模型|模型|agent|智能体|openai|claude|gemini|deepseek|qwen|glm|字节|百度|腾讯|阿里|智谱|kimi|机器学习|生成式|算力|芯片|自动驾驶|机器人)/i.test(
+    title,
+  );
+
+  if (titleHasAICue && (entityHits >= 1 || aiHits >= 1 || eventHits >= 1)) return true;
+  if (entityHits >= 1 && aiHits >= 1) return true;
+  if (entityHits >= 1 && eventHits >= 1) return true;
+  if (aiHits >= 2) return true;
+
+  return false;
+}
+
 function areLikelyDuplicates(left: RankedItem, right: RankedItem): boolean {
   if (left.url === right.url) return true;
   if (left.dedupeKey === right.dedupeKey) return true;
@@ -442,6 +560,9 @@ function calculateHotScore(item: RawItem, source: SourceConfig): RankedItem | nu
     if (aiHits === 0) return null;
     if (entityHits + eventHits + aiHits < 2) return null;
   }
+
+  if (isChineseGeneralSource(source.name) && !hasModerateAICue(title, content)) return null;
+  if (isChineseVerticalAISource(source.name) && aiHits === 0 && entityHits === 0 && !titleHasAICue) return null;
 
   const authorityWeight = AUTHORITY_WEIGHTS[source.authorityLevel];
   let hotScore = Math.round(source.priority * 10 * authorityWeight);
@@ -522,7 +643,7 @@ function buildSupplementItems(
     if (selectedKeys.has(dedupeKey)) continue;
     if (selectedUrls.has(item.url)) continue;
 
-    const source = API_RSS_SOURCES.find((x) => x.name === item.source);
+    const source = API_RSS_SOURCE_MAP.get(item.source);
     const isCoreSource = source ? CORE_SOURCE_NAMES.has(source.name) : false;
     const base = source ? Math.round(source.priority * 10 * AUTHORITY_WEIGHTS[source.authorityLevel]) : 10;
     const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
@@ -535,6 +656,8 @@ function buildSupplementItems(
       if (aiHits === 0 && entityHits === 0 && !titleHasAICue) continue;
       if (entityHits + eventHits + aiHits < 1 && !titleHasAICue) continue;
     }
+    if (source && isChineseGeneralSource(source.name) && !hasModerateAICue(title, content)) continue;
+    if (source && isChineseVerticalAISource(source.name) && aiHits === 0 && entityHits === 0) continue;
     const score =
       base +
       aiHits * 3 +
@@ -575,7 +698,7 @@ function buildLooseSupplementItems(
     if (selectedKeys.has(dedupeKey) || selectedUrls.has(item.url)) continue;
     if (EXCLUDE_WORDS.some((keyword) => normalizeText(title).includes(keyword))) continue;
 
-    const source = API_RSS_SOURCES.find((x) => x.name === item.source);
+    const source = API_RSS_SOURCE_MAP.get(item.source);
     const base = source ? Math.round(source.priority * 10 * AUTHORITY_WEIGHTS[source.authorityLevel]) : 10;
     const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
     const entities = normalizeEntities(text);
@@ -583,6 +706,8 @@ function buildLooseSupplementItems(
     const titleHasAICue = /(ai|人工智能|大模型|模型|agent|智能体|openai|claude|gemini|deepseek|qwen|glm|字节|百度|腾讯|阿里)/i.test(title);
 
     if (aiHits === 0 && entities.length === 0 && !titleHasAICue) continue;
+    if (source && isChineseGeneralSource(source.name) && !hasModerateAICue(title, content)) continue;
+    if (source && isChineseVerticalAISource(source.name) && aiHits === 0 && entities.length === 0) continue;
 
     const score =
       base +
@@ -622,7 +747,7 @@ function buildLastChanceItems(
     const dedupeKey = buildDedupeKey(title, content);
     if (selectedKeys.has(dedupeKey) || selectedUrls.has(item.url)) continue;
 
-    const source = API_RSS_SOURCES.find((x) => x.name === item.source);
+    const source = API_RSS_SOURCE_MAP.get(item.source);
     const isCoreSource = source ? CORE_SOURCE_NAMES.has(source.name) : false;
     const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
     const entities = normalizeEntities(text);
@@ -631,6 +756,8 @@ function buildLastChanceItems(
 
     // Core AI sources are trusted enough to use as a last-chance filler.
     if (!isCoreSource && aiHits === 0 && entities.length === 0 && events.length === 0 && !titleHasAICue) continue;
+    if (source && isChineseGeneralSource(source.name) && !hasModerateAICue(title, content)) continue;
+    if (source && isChineseVerticalAISource(source.name) && aiHits === 0 && entities.length === 0) continue;
 
     const base = source ? Math.round(source.priority * 10 * AUTHORITY_WEIGHTS[source.authorityLevel]) : 8;
     const score = Math.max(
@@ -823,7 +950,7 @@ function toFrontendItem(item: RankedItem, aiResult: AIResult | undefined, index:
 
 function buildSummaryBullets(news: FrontendNewsItem[]): string[] {
   if (news.length === 0) {
-    return ['昨天没有抓到符合规则的 AI 热点新闻。'];
+    return ['昨天没有抓到符合规则的 AI 新闻，请稍后重试或检查 RSS 源状态。'];
   }
 
   const topSources = Array.from(new Set(news.slice(0, 5).map((x) => x.Source))).slice(0, 3);
@@ -834,6 +961,28 @@ function buildSummaryBullets(news: FrontendNewsItem[]): string[] {
     `高频来源主要来自 ${topSources.join('、')}。`,
     '热门内容以模型更新、产品发布和商业化动作为主，政策与安全相关议题保持关注度。',
   ];
+}
+
+function selectYesterdayFirst(
+  sourceItems: RawItem[],
+  buildItems: (items: RawItem[]) => RankedItem[],
+): {
+  selected: RankedItem[];
+  yesterdayItems: RawItem[];
+  todayItems: RawItem[];
+} {
+  const yesterdayDate = getYesterdayDateString();
+  const todayDate = getTodayDateString();
+
+  const yesterdayItems = sourceItems.filter((item) => getShanghaiDateString(item.publishedAt) === yesterdayDate);
+  const todayItems = sourceItems.filter((item) => getShanghaiDateString(item.publishedAt) === todayDate);
+  const selected = buildItems(yesterdayItems).slice(0, PER_SOURCE_TARGET_MAX);
+
+  return {
+    selected: dedupeBySignature(selected).slice(0, PER_SOURCE_TARGET_MAX),
+    yesterdayItems,
+    todayItems,
+  };
 }
 
 function buildPerSourceCandidatePool(yesterdayItems: RawItem[]): RankedItem[] {
@@ -847,34 +996,51 @@ function buildPerSourceCandidatePool(yesterdayItems: RawItem[]): RankedItem[] {
 
   const pooled: RankedItem[] = [];
 
-  for (const source of API_RSS_SOURCES) {
+  for (const source of ACTIVE_API_RSS_SOURCES) {
     const sourceItems = grouped.get(source.name) || [];
     if (sourceItems.length === 0) continue;
 
-    const strictRanked = sourceItems
-      .map((item) => calculateHotScore(item, source))
-      .filter((item): item is RankedItem => Boolean(item));
-
-    let selected = dedupeBySignature(strictRanked).slice(0, PER_SOURCE_TARGET_MAX);
+    let selected = selectYesterdayFirst(
+      sourceItems,
+      (items) =>
+        items
+          .map((item) => calculateHotScore(item, source))
+          .filter((item): item is RankedItem => Boolean(item)),
+    ).selected;
 
     if (selected.length < PER_SOURCE_TARGET_MIN) {
-      const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
-      const selectedUrls = new Set(selected.map((x) => x.url));
-      const supplements = buildSupplementItems(sourceItems, selectedKeys, selectedUrls);
+      const supplements = selectYesterdayFirst(
+        sourceItems,
+        (items) => {
+          const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
+          const selectedUrls = new Set(selected.map((x) => x.url));
+          return buildSupplementItems(items, selectedKeys, selectedUrls);
+        },
+      ).selected;
       selected = dedupeBySignature([...selected, ...supplements]).slice(0, PER_SOURCE_TARGET_MAX);
     }
 
     if (selected.length < PER_SOURCE_TARGET_MIN) {
-      const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
-      const selectedUrls = new Set(selected.map((x) => x.url));
-      const looseSupplements = buildLooseSupplementItems(sourceItems, selectedKeys, selectedUrls);
+      const looseSupplements = selectYesterdayFirst(
+        sourceItems,
+        (items) => {
+          const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
+          const selectedUrls = new Set(selected.map((x) => x.url));
+          return buildLooseSupplementItems(items, selectedKeys, selectedUrls);
+        },
+      ).selected;
       selected = dedupeBySignature([...selected, ...looseSupplements]).slice(0, PER_SOURCE_TARGET_MAX);
     }
 
     if (selected.length < PER_SOURCE_TARGET_MIN) {
-      const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
-      const selectedUrls = new Set(selected.map((x) => x.url));
-      const lastChanceItems = buildLastChanceItems(sourceItems, selectedKeys, selectedUrls);
+      const lastChanceItems = selectYesterdayFirst(
+        sourceItems,
+        (items) => {
+          const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
+          const selectedUrls = new Set(selected.map((x) => x.url));
+          return buildLastChanceItems(items, selectedKeys, selectedUrls);
+        },
+      ).selected;
       selected = dedupeBySignature([...selected, ...lastChanceItems]).slice(0, PER_SOURCE_TARGET_MAX);
     }
 
@@ -891,7 +1057,7 @@ function buildPerSourceCandidatePoolWithDebug(yesterdayItems: RawItem[], fetched
   const grouped = new Map<string, RawItem[]>();
   const fetchedCountMap = new Map<string, number>();
 
-  API_RSS_SOURCES.forEach((source, index) => {
+  ACTIVE_API_RSS_SOURCES.forEach((source, index) => {
     fetchedCountMap.set(source.name, fetchedGroups[index]?.length || 0);
   });
 
@@ -904,39 +1070,65 @@ function buildPerSourceCandidatePoolWithDebug(yesterdayItems: RawItem[], fetched
   const pooled: RankedItem[] = [];
   const perSource: DailyBriefSourceDebug[] = [];
 
-  for (const source of API_RSS_SOURCES) {
+  for (const source of ACTIVE_API_RSS_SOURCES) {
     const sourceItems = grouped.get(source.name) || [];
+    const yesterdayDate = getYesterdayDateString();
+    const todayDate = getTodayDateString();
+    const yesterdayItems = sourceItems.filter((item) => getShanghaiDateString(item.publishedAt) === yesterdayDate);
+    const todayItems = sourceItems.filter((item) => getShanghaiDateString(item.publishedAt) === todayDate);
+
     const strictRanked = sourceItems
       .map((item) => calculateHotScore(item, source))
       .filter((item): item is RankedItem => Boolean(item));
 
     const strictDeduped = dedupeBySignature(strictRanked);
-    let selected = strictDeduped.slice(0, PER_SOURCE_TARGET_MAX);
+    let selected = selectYesterdayFirst(
+      sourceItems,
+      (items) =>
+        items
+          .map((item) => calculateHotScore(item, source))
+          .filter((item): item is RankedItem => Boolean(item)),
+    ).selected;
 
     let supplementCount = 0;
     let looseSupplementCount = 0;
     let lastChanceCount = 0;
 
     if (selected.length < PER_SOURCE_TARGET_MIN) {
-      const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
-      const selectedUrls = new Set(selected.map((x) => x.url));
-      const supplements = buildSupplementItems(sourceItems, selectedKeys, selectedUrls);
+      const supplements = selectYesterdayFirst(
+        sourceItems,
+        (items) => {
+          const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
+          const selectedUrls = new Set(selected.map((x) => x.url));
+          return buildSupplementItems(items, selectedKeys, selectedUrls);
+        },
+      ).selected;
       supplementCount = supplements.length;
       selected = dedupeBySignature([...selected, ...supplements]).slice(0, PER_SOURCE_TARGET_MAX);
     }
 
     if (selected.length < PER_SOURCE_TARGET_MIN) {
-      const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
-      const selectedUrls = new Set(selected.map((x) => x.url));
-      const looseSupplements = buildLooseSupplementItems(sourceItems, selectedKeys, selectedUrls);
+      const looseSupplements = selectYesterdayFirst(
+        sourceItems,
+        (items) => {
+          const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
+          const selectedUrls = new Set(selected.map((x) => x.url));
+          return buildLooseSupplementItems(items, selectedKeys, selectedUrls);
+        },
+      ).selected;
       looseSupplementCount = looseSupplements.length;
       selected = dedupeBySignature([...selected, ...looseSupplements]).slice(0, PER_SOURCE_TARGET_MAX);
     }
 
     if (selected.length < PER_SOURCE_TARGET_MIN) {
-      const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
-      const selectedUrls = new Set(selected.map((x) => x.url));
-      const lastChanceItems = buildLastChanceItems(sourceItems, selectedKeys, selectedUrls);
+      const lastChanceItems = selectYesterdayFirst(
+        sourceItems,
+        (items) => {
+          const selectedKeys = new Set(selected.map((x) => x.dedupeKey));
+          const selectedUrls = new Set(selected.map((x) => x.url));
+          return buildLastChanceItems(items, selectedKeys, selectedUrls);
+        },
+      ).selected;
       lastChanceCount = lastChanceItems.length;
       selected = dedupeBySignature([...selected, ...lastChanceItems]).slice(0, PER_SOURCE_TARGET_MAX);
     }
@@ -945,7 +1137,9 @@ function buildPerSourceCandidatePoolWithDebug(yesterdayItems: RawItem[], fetched
     perSource.push({
       source: source.name,
       fetchedCount: fetchedCountMap.get(source.name) || 0,
-      yesterdayCount: sourceItems.length,
+      yesterdayCount: yesterdayItems.length,
+      todayCount: todayItems.length,
+      dateWindowCount: sourceItems.length,
       strictRankedCount: strictDeduped.length,
       supplementCount,
       looseSupplementCount,
@@ -958,33 +1152,100 @@ function buildPerSourceCandidatePoolWithDebug(yesterdayItems: RawItem[], fetched
   return { pooled, perSource };
 }
 
+function dedupeAppend(base: RankedItem[], incoming: RankedItem[], limit: number): RankedItem[] {
+  if (base.length >= limit) return base.slice(0, limit);
+
+  const selectedKeys = new Set(base.map((item) => item.dedupeKey));
+  const selectedUrls = new Set(base.map((item) => item.url));
+  const merged = [...base];
+
+  for (const item of incoming) {
+    if (selectedKeys.has(item.dedupeKey) || selectedUrls.has(item.url)) continue;
+    merged.push(item);
+    selectedKeys.add(item.dedupeKey);
+    selectedUrls.add(item.url);
+    if (merged.length >= limit) break;
+  }
+
+  return dedupeBySignature(merged).slice(0, limit);
+}
+
 async function buildDailyBriefBase(withDebug = false): Promise<DailyBriefResponse | DailyBriefDebugResponse> {
-  const rawGroups = await Promise.all(API_RSS_SOURCES.map((source) => fetchSource(source)));
+  const rawGroups = await Promise.all(ACTIVE_API_RSS_SOURCES.map((source) => fetchSource(source)));
   const rawItems = rawGroups.flat();
-  const yesterdayItems = rawItems.filter((item) => isYesterdayInShanghai(item.publishedAt));
+  const yesterdayItems = rawItems.filter((item) => isWithinCurrentWindowInShanghai(item.publishedAt));
 
   const { pooled: rankedPool, perSource } = buildPerSourceCandidatePoolWithDebug(yesterdayItems, rawGroups);
-  const primary = dedupeBySignature(applyCrossPlatformBonus(rankedPool)).slice(0, FINAL_LIMIT);
+  const chineseRankedPool = rankedPool.filter((item) => isChineseSourceName(item.source));
+  const internationalRankedPool = rankedPool.filter((item) => !isChineseSourceName(item.source));
+
+  const primaryChinese = dedupeBySignature(applyCrossPlatformBonus(chineseRankedPool)).slice(0, FINAL_LIMIT);
+  const primaryInternational = dedupeBySignature(applyCrossPlatformBonus(internationalRankedPool)).slice(0, FINAL_LIMIT);
+  const primary = dedupeAppend(primaryChinese, primaryInternational, FINAL_LIMIT);
 
   let deduped = primary;
-  if (primary.length < FINAL_LIMIT) {
-    const selectedKeys = new Set(primary.map((x) => x.dedupeKey));
-    const selectedUrls = new Set(primary.map((x) => x.url));
-    const supplements = buildSupplementItems(yesterdayItems, selectedKeys, selectedUrls);
-    deduped = [...primary, ...supplements].slice(0, FINAL_LIMIT);
+  if (deduped.length < FINAL_LIMIT) {
+    const chineseYesterdayItems = yesterdayItems.filter((item) => isChineseSourceName(item.source));
+    const internationalYesterdayItems = yesterdayItems.filter((item) => !isChineseSourceName(item.source));
 
-    if (deduped.length < TARGET_MIN_NEWS) {
+    const selectedKeys = new Set(deduped.map((x) => x.dedupeKey));
+    const selectedUrls = new Set(deduped.map((x) => x.url));
+    const chineseSupplements = buildSupplementItems(chineseYesterdayItems, selectedKeys, selectedUrls);
+    deduped = dedupeAppend(deduped, chineseSupplements, FINAL_LIMIT);
+
+    if (deduped.length < FINAL_LIMIT) {
       const secondSelectedKeys = new Set(deduped.map((x) => x.dedupeKey));
       const secondSelectedUrls = new Set(deduped.map((x) => x.url));
-      const looseSupplements = buildLooseSupplementItems(yesterdayItems, secondSelectedKeys, secondSelectedUrls);
-      deduped = dedupeBySignature([...deduped, ...looseSupplements]).slice(0, FINAL_LIMIT);
+      const internationalSupplements = buildSupplementItems(
+        internationalYesterdayItems,
+        secondSelectedKeys,
+        secondSelectedUrls,
+      );
+      deduped = dedupeAppend(deduped, internationalSupplements, FINAL_LIMIT);
     }
 
     if (deduped.length < TARGET_MIN_NEWS) {
       const thirdSelectedKeys = new Set(deduped.map((x) => x.dedupeKey));
       const thirdSelectedUrls = new Set(deduped.map((x) => x.url));
-      const lastChanceItems = buildLastChanceItems(yesterdayItems, thirdSelectedKeys, thirdSelectedUrls);
-      deduped = dedupeBySignature([...deduped, ...lastChanceItems]).slice(0, FINAL_LIMIT);
+      const chineseLooseSupplements = buildLooseSupplementItems(
+        chineseYesterdayItems,
+        thirdSelectedKeys,
+        thirdSelectedUrls,
+      );
+      deduped = dedupeAppend(deduped, chineseLooseSupplements, FINAL_LIMIT);
+    }
+
+    if (deduped.length < TARGET_MIN_NEWS) {
+      const fourthSelectedKeys = new Set(deduped.map((x) => x.dedupeKey));
+      const fourthSelectedUrls = new Set(deduped.map((x) => x.url));
+      const internationalLooseSupplements = buildLooseSupplementItems(
+        internationalYesterdayItems,
+        fourthSelectedKeys,
+        fourthSelectedUrls,
+      );
+      deduped = dedupeAppend(deduped, internationalLooseSupplements, FINAL_LIMIT);
+    }
+
+    if (deduped.length < TARGET_MIN_NEWS) {
+      const fifthSelectedKeys = new Set(deduped.map((x) => x.dedupeKey));
+      const fifthSelectedUrls = new Set(deduped.map((x) => x.url));
+      const chineseLastChanceItems = buildLastChanceItems(
+        chineseYesterdayItems,
+        fifthSelectedKeys,
+        fifthSelectedUrls,
+      );
+      deduped = dedupeAppend(deduped, chineseLastChanceItems, FINAL_LIMIT);
+    }
+
+    if (deduped.length < TARGET_MIN_NEWS) {
+      const sixthSelectedKeys = new Set(deduped.map((x) => x.dedupeKey));
+      const sixthSelectedUrls = new Set(deduped.map((x) => x.url));
+      const internationalLastChanceItems = buildLastChanceItems(
+        internationalYesterdayItems,
+        sixthSelectedKeys,
+        sixthSelectedUrls,
+      );
+      deduped = dedupeAppend(deduped, internationalLastChanceItems, FINAL_LIMIT);
     }
   }
 
@@ -1016,7 +1277,7 @@ async function buildDailyBriefBase(withDebug = false): Promise<DailyBriefRespons
     news,
     top5,
     summary: buildSummaryBullets(news),
-    date: getYesterdayDateString(),
+    date: getCurrentWindowLabel(),
     total: news.length,
   };
 

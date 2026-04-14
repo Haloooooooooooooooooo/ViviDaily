@@ -2,7 +2,7 @@ import type { DailyBrief, NewsItem } from '../types/news';
 
 const REQUEST_TIMEOUT_MS = 45000;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:3102';
-const DAILY_BRIEF_CACHE_KEY = 'vividaily_daily_brief_cache_v1';
+const DAILY_BRIEF_CACHE_KEY = 'vividaily_daily_brief_cache_v2';
 
 type DailyBriefCachePayload = {
   cachedOn: string;

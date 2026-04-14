@@ -30,6 +30,8 @@ export interface DailyBriefSourceDebug {
   source: string;
   fetchedCount: number;
   yesterdayCount: number;
+  todayCount: number;
+  dateWindowCount: number;
   strictRankedCount: number;
   supplementCount: number;
   looseSupplementCount: number;
@@ -50,13 +52,26 @@ export interface DailyBriefDebugResponse extends DailyBriefResponse {
 }
 
 export type AuthorityLevel = 'official' | 'headMedia' | 'generalMedia';
+export type SourceTier = 'P0' | 'P1' | 'P2';
+export type SourceStatus = 'active' | 'candidate' | 'paused';
 
 export interface SourceConfig {
   name: string;
   url: string;
   priority: number;
   authorityLevel: AuthorityLevel;
+  tier: SourceTier;
+  status: SourceStatus;
+  rationale?: string;
   enabled?: boolean;
+}
+
+export interface SourceCandidate {
+  name: string;
+  siteUrl: string;
+  tier: SourceTier;
+  status: SourceStatus;
+  rationale: string;
 }
 
 export const AUTHORITY_WEIGHTS: Record<AuthorityLevel, number> = {
