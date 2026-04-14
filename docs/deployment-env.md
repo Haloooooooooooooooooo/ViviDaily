@@ -34,6 +34,7 @@ NOTION_CLIENT_ID=
 NOTION_CLIENT_SECRET=
 NOTION_REDIRECT_URI=http://127.0.0.1:3102/api/notion/oauth/callback
 FRONTEND_URL=http://127.0.0.1:3000
+NOTION_OAUTH_TABLE=user_notion_connections
 
 # AI
 AI_API_KEY=sk-xxx
@@ -43,6 +44,9 @@ AI_MODEL=deepseek-chat
 # Backend
 API_PORT=3102
 CORS_ALLOW_ORIGIN=http://127.0.0.1:3000
+
+# Supabase
+SUPABASE_SERVICE_ROLE_KEY=
 
 # Frontend
 VITE_API_BASE_URL=http://127.0.0.1:3102
@@ -78,6 +82,7 @@ CORS_ALLOW_ORIGIN=https://vividaily.yourdomain.com
 - 后端 `CORS_ALLOW_ORIGIN` 只允许前端正式域名。
 - 确保 Notion Integration 已共享到目标数据库。
 - 配置日志与重启策略（PM2 / Docker / 平台托管）。
+- 推荐为 Notion OAuth 持久化配置 `SUPABASE_SERVICE_ROLE_KEY`。
 
 补充（认证相关）：
 
@@ -92,5 +97,6 @@ CORS_ALLOW_ORIGIN=https://vividaily.yourdomain.com
 
 - 前端能开但无数据：检查 `VITE_API_BASE_URL` 与 `/api/daily-brief`。
 - 导出 Notion 失败：检查 `NOTION_API_KEY`、`NOTION_DATABASE_ID`、数据库字段类型。
+- OAuth 状态重启后丢失：检查 `SUPABASE_SERVICE_ROLE_KEY` 与 `NOTION_OAUTH_TABLE`。
 - 浏览器跨域报错：检查 `CORS_ALLOW_ORIGIN` 是否匹配前端域名。
 - 端口冲突：前端 3000 或后端 3102 被占用时，先释放端口再启动。

@@ -2,6 +2,67 @@ import type { DailyBrief, NewsItem } from '../types/news';
 
 const REQUEST_TIMEOUT_MS = 45000;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:3102';
+const DAILY_BRIEF_CACHE_KEY = 'vividaily_daily_brief_cache_v1';
+
+type DailyBriefCachePayload = {
+  cachedOn: string;
+  brief: DailyBrief & { date?: string; total?: number };
+};
+
+function formatShanghaiDate(offsetDays = 0): string {
+  const now = new Date();
+  now.setDate(now.getDate() + offsetDays);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+function getTodayInShanghai(): string {
+  return formatShanghaiDate(0);
+}
+
+function getYesterdayInShanghai(): string {
+  return formatShanghaiDate(-1);
+}
+
+export function getCachedDailyBrief(): DailyBrief | null {
+  try {
+    const raw = window.localStorage.getItem(DAILY_BRIEF_CACHE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as DailyBriefCachePayload;
+    if (!parsed?.brief?.news || !Array.isArray(parsed.brief.news)) return null;
+    if (parsed.cachedOn !== getTodayInShanghai()) return null;
+    if (parsed.brief.date && parsed.brief.date !== getYesterdayInShanghai()) return null;
+
+    return parsed.brief;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedDailyBrief(brief: DailyBrief & { date?: string; total?: number }): void {
+  try {
+    const payload: DailyBriefCachePayload = {
+      cachedOn: getTodayInShanghai(),
+      brief,
+    };
+    window.localStorage.setItem(DAILY_BRIEF_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    return;
+  }
+}
+
+export function clearCachedDailyBrief(): void {
+  try {
+    window.localStorage.removeItem(DAILY_BRIEF_CACHE_KEY);
+  } catch {
+    return;
+  }
+}
 
 export async function fetchDailyBrief(): Promise<DailyBrief> {
   const controller = new AbortController();
@@ -19,6 +80,8 @@ export async function fetchDailyBrief(): Promise<DailyBrief> {
     if (!data.news || !Array.isArray(data.news)) {
       throw new Error('Invalid daily brief payload');
     }
+
+    setCachedDailyBrief(data);
 
     return data;
   } catch (error) {

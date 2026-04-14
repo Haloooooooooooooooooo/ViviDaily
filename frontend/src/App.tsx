@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Search } from 'lucide-react';
 import { LandingHero, LoadingScreen, LoginModal } from './components/entry';
 import { FavoritesView, NewsCard, RightSidebar, Sidebar, TopNav } from './components/feed';
-import { fetchDailyBrief, sortNewsByHotScore } from './lib/dailyBrief';
+import { fetchDailyBrief, getCachedDailyBrief, sortNewsByHotScore } from './lib/dailyBrief';
 import {
   exportNewsToNotion,
   getNotionOAuthStatus,
@@ -86,9 +86,8 @@ export default function App() {
       if (oauth === 'success' || pendingOAuthReturn) {
         setActionFeedback({ id: 'auth', message: 'Notion 授权成功，请设置数据库 ID 后导出', tone: 'success' });
 
-        // OAuth 回跳后恢复到 Feed，再打开 Notion 引导弹窗，避免落回 Landing。
         try {
-          const brief = await fetchDailyBrief();
+          const brief = getCachedDailyBrief() || (await fetchDailyBrief());
           setNewsData(brief.news);
           setAiSummary(brief.summary);
           setFetchErrorMessage(null);
@@ -175,6 +174,18 @@ export default function App() {
   }, [newsData]);
 
   const handleGetStarted = async () => {
+    const cachedBrief = getCachedDailyBrief();
+    if (cachedBrief) {
+      setNewsData(cachedBrief.news);
+      setAiSummary(cachedBrief.summary);
+      setFetchErrorMessage(null);
+      setActiveCategory('Hot');
+      setSearchQuery('');
+      setHighlightedNewsId(null);
+      setView('feed');
+      return;
+    }
+
     setView('loading');
     setIsFetching(true);
     setFetchErrorMessage(null);

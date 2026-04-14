@@ -1,6 +1,6 @@
 # ViviDaily PRD 进度
 
-> 最后更新：2026-04-13（请求超时优化 + Notion OAuth 体验修正 + 部署前配置清单补充）
+> 最后更新：2026-04-14（文档与当前代码状态对齐 + 信息源口径修正）
 
 ## 一、当前正式实现口径
 
@@ -26,15 +26,14 @@
 - 量子位
 - 机器之心
 - 新智元
+- InfoQ
 - RadarAI
 - 雷锋网 AI
+- 36Kr AI（RSSHub 定向）
 - IT 之家
 - 极客公园
 - 爱范儿
-- 36Kr
-- InfoQ
 - cnBeta
-- OpenAI News
 
 说明：
 
@@ -179,10 +178,9 @@ Top5 面向“昨天抓取到的全部新闻”，不是某个单独分类。
 - [✅] Top5 标签与 HotScore 放到新闻标题下方
 - [✅] 收藏、分享、导入 Notion 的前端交互已具备演示逻辑
 - [✅] 新闻流、Top5、AI Summary 已统一走同一套前端数据入口
-- [✅] 前端已优先读取真实新闻 API，失败时自动降级到本地演示数据
+- [✅] 前端已切换为只读取真实新闻 API，失败时直接显示错误提示，不再降级到本地 mock 数据
 - [✅] 后端已新增 `daily-brief` API，能够返回昨天新闻、Top5 和 AI Summary
 - [✅] 登录门禁：未登录点击收藏/导入 Notion 弹出登录窗，登录后才可操作
-- [✅] 同日缓存：当日第一次点击 `Get Started` 后缓存结果，当天再次进入不重复抓取
 - [✅] 首次导入 Notion 引导：未连接/未配置数据库时自动弹出连接引导弹窗
 - [✅] Notion 授权回跳体验：OAuth 成功后回到 Feed，并自动重开 Notion 引导弹窗
 - [✅] Notion Database ID 兼容：支持粘贴完整 Notion 数据库 URL，后端自动提取正确 ID
@@ -190,6 +188,7 @@ Top5 面向“昨天抓取到的全部新闻”，不是某个单独分类。
 - [✅] 部署模板补齐：新增 `frontend/vercel.json`、`frontend/.env.production.example`、`backend/.env.production.example`
 - [✅] 补充 Vercel 上线认证说明：新增 Supabase Auth（Site URL/Redirect URLs）与 Notion OAuth 回调一致性检查项
 - [✅] 请求超时优化：后端 AI 请求 8s 超时，前端 API 请求 18s 超时，避免长时间阻塞
+- [✅] 已完成基础线上部署链路：前端 Vercel、后端 Render 可运行
 
 ## 九、当前未完成
 
@@ -197,7 +196,7 @@ Top5 面向“昨天抓取到的全部新闻”，不是某个单独分类。
 - [✅] 接入真实 Notion 导出能力（后端 `POST /api/notion/export` + 前端导出按钮真实调用）
 - [ ] 清理剩余历史目录与过期文档
 - [ ] 评估面向其他用户开放时需要的部署、环境变量、鉴权与回调配置
-- [ ] 完成线上实际发布（当前阻塞：本机 npm cache 权限 `EPERM`，Vercel CLI 无法稳定执行）
+- [ ] 继续优化线上稳定性，包括 RSS 超时、链接提取、抓取数量与日志监控
 
 ## 十、下一步建议执行顺序
 
@@ -224,6 +223,8 @@ Top5 面向“昨天抓取到的全部新闻”，不是某个单独分类。
 - [✅] 完善导出成功、失败的前端反馈（后端返回可读错误信息，前端直接展示）
 - [✅] 补充重复导入的明确提示（后端查重后返回“已导入（重复跳过）”）
 - [✅] 明确导出模式：导入模式定为 `shared + user_oauth` 双轨（见 `docs/notion-export-mode.md`）
+- [✅] 登录/注册与登录门禁已打通，未登录时收藏与导入 Notion 会触发登录弹窗
+- [✅] Notion OAuth 用户连接状态已支持落到 Supabase 持久化表中
 
 ### 当前执行优先级（产品优先）
 
@@ -236,21 +237,15 @@ Top5 面向“昨天抓取到的全部新闻”，不是某个单独分类。
 - [✅] 整理前后端环境变量与启动说明（见 `docs/deployment-env.md`）
 - [✅] 评估正式部署方式、API 域名、跨域配置与 HTTPS（见 `docs/deploy-vercel.md`）
 - [✅] 评估用户级授权方案（Notion OAuth）并完成后端接口接入
-- [ ] 补充日志、错误监控与缓存策略
+- [✅] 补齐前端 Vercel 与后端 Render 的最终生产环境验收清单
+- [✅] 补充基础日志、健康检查与部署监控文档（见 `docs/ops-monitoring.md`）
 
-## 十二、明日直接执行清单（按顺序）
+## 十二、下一轮直接执行清单（按顺序）
 
-1. 完成前端部署到 Vercel（`frontend` 作为 Root Directory）。
-2. 完成后端部署到 Render/Railway（当前后端是长驻服务，不直接走 Vercel Functions）。
-3. 把前端环境变量 `VITE_API_BASE_URL` 改为线上后端 HTTPS 地址并重新部署前端。
-4. 把后端 `CORS_ALLOW_ORIGIN` 改为前端正式域名（不要再用 `*`）。
-5. 把 Notion OAuth 三件套改为线上值并验证回调：
-   - `NOTION_CLIENT_ID`
-   - `NOTION_CLIENT_SECRET`
-   - `NOTION_REDIRECT_URI=https://<后端域名>/api/notion/oauth/callback`
-6. 把 `FRONTEND_URL` 改为线上前端地址，确保 OAuth 回跳正确。
-7. 线上验收：注册/登录、抓取昨日新闻、连接 Notion、导入 Notion、重复导入提示。
-8. 清理旧目录 `ViviDaily-github` 与过期文档，减少后续协作误改风险。
+1. 继续优化 `HotScore`、分类、主题标签与去重逻辑，提升结果质量。
+2. 继续排查与优化 RSS 原文链接提取，减少跳到 XML 页的情况。
+3. 做一轮线上验收：注册/登录、抓取昨日新闻、连接 Notion、导入 Notion、重复导入提示。
+4. 清理旧目录与过期文档，降低后续协作误改风险。
 
 ## 十三、Vercel 上线后认证与配置必须修改项
 

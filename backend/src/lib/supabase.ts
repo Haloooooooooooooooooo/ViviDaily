@@ -7,7 +7,9 @@ dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+const isSupabaseAdminConfigured = Boolean(supabaseUrl && supabaseServiceRoleKey);
 
 if (!isSupabaseConfigured) {
   console.warn('[supabase] Missing SUPABASE_URL or SUPABASE_ANON_KEY');
@@ -17,6 +19,19 @@ export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-anon-key',
 );
+
+export const supabaseAdmin = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseServiceRoleKey || supabaseAnonKey || 'placeholder-anon-key',
+);
+
+export function isSupabaseReady(): boolean {
+  return isSupabaseConfigured;
+}
+
+export function isSupabaseAdminReady(): boolean {
+  return isSupabaseAdminConfigured;
+}
 
 function mapSupabaseAuthError(message: string): string {
   const m = message.toLowerCase();

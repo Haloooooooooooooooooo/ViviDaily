@@ -1,4 +1,10 @@
 import crypto from 'crypto';
+import {
+  getStoredNotionConnection,
+  removeNotionConnection,
+  saveNotionConnection,
+  saveNotionDatabaseId,
+} from './notion-oauth-store';
 
 interface NotionOAuthConfig {
   clientId: string;
@@ -17,7 +23,6 @@ export interface UserNotionConnection {
 }
 
 const OAUTH_STATE_CACHE = new Map<string, { userId: string; createdAt: number }>();
-const USER_NOTION_CONNECTIONS = new Map<string, UserNotionConnection>();
 const OAUTH_STATE_TTL_MS = 1000 * 60 * 10;
 const NOTION_ID_RE = /([0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/;
 
@@ -106,7 +111,7 @@ export async function handleOAuthCallback(code: string, state: string): Promise<
     return `${config.frontendUrl}/?notion_oauth=failed`;
   }
 
-  USER_NOTION_CONNECTIONS.set(stateRecord.userId, {
+  await saveNotionConnection({
     userId: stateRecord.userId,
     accessToken: data.access_token,
     workspaceId: data.workspace_id,
@@ -117,8 +122,8 @@ export async function handleOAuthCallback(code: string, state: string): Promise<
   return `${config.frontendUrl}/?notion_oauth=success`;
 }
 
-export function getUserNotionConnection(userId: string): UserNotionConnection | null {
-  return USER_NOTION_CONNECTIONS.get(userId) || null;
+export async function getUserNotionConnection(userId: string): Promise<UserNotionConnection | null> {
+  return getStoredNotionConnection(userId);
 }
 
 export function normalizeNotionDatabaseId(input: string): string {
@@ -139,19 +144,12 @@ export function normalizeNotionDatabaseId(input: string): string {
   return idHit?.[1] || '';
 }
 
-export function setUserNotionDatabase(userId: string, databaseId: string): UserNotionConnection | null {
-  const connection = USER_NOTION_CONNECTIONS.get(userId);
-  if (!connection) return null;
+export async function setUserNotionDatabase(userId: string, databaseId: string): Promise<UserNotionConnection | null> {
   const normalizedDatabaseId = normalizeNotionDatabaseId(databaseId);
   if (!normalizedDatabaseId) return null;
-
-  USER_NOTION_CONNECTIONS.set(userId, {
-    ...connection,
-    databaseId: normalizedDatabaseId,
-  });
-  return USER_NOTION_CONNECTIONS.get(userId) || null;
+  return saveNotionDatabaseId(userId, normalizedDatabaseId);
 }
 
-export function disconnectUserNotion(userId: string): void {
-  USER_NOTION_CONNECTIONS.delete(userId);
+export async function disconnectUserNotion(userId: string): Promise<void> {
+  await removeNotionConnection(userId);
 }

@@ -3,7 +3,7 @@ import path from 'path';
 import http from 'http';
 import { buildDailyBrief } from './daily-brief';
 import { exportNewsToNotion, isValidExportPayload } from './notion-export';
-import { signUp, signIn, getUser, signOut } from '../lib/supabase';
+import { isSupabaseAdminReady, isSupabaseReady, signUp, signIn, getUser, signOut } from '../lib/supabase';
 import {
   buildOAuthStartUrl,
   disconnectUserNotion,
@@ -19,6 +19,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
 const PORT = Number(process.env.API_PORT || 3102);
 const CORS_ALLOW_ORIGIN = process.env.CORS_ALLOW_ORIGIN || '*';
+const serverStartedAt = new Date().toISOString();
 
 function resolveAllowOrigin(requestOrigin?: string): string {
   if (CORS_ALLOW_ORIGIN === '*') return '*';
@@ -77,6 +78,12 @@ async function getAuthedUser(req: http.IncomingMessage) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    const pathname = req.url ? new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname : '/';
+    console.log(`[api] ${req.method || 'GET'} ${pathname} ${res.statusCode} ${Date.now() - startedAt}ms`);
+  });
+
   if (!req.url) {
     sendJson(res, 404, { error: 'Not found' });
     return;
@@ -91,7 +98,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/health') {
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, {
+      ok: true,
+      service: 'vividaily-api',
+      startedAt: serverStartedAt,
+      now: new Date().toISOString(),
+      notionExportMode: getNotionExportMode(),
+      supabaseReady: isSupabaseReady(),
+      supabaseAdminReady: isSupabaseAdminReady(),
+    });
     return;
   }
 
@@ -122,7 +137,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        const connection = getUserNotionConnection(authed.user.id);
+        const connection = await getUserNotionConnection(authed.user.id);
         if (!connection) {
           sendJson(res, 400, { ok: false, message: '你还没有连接 Notion，请先授权。' });
           return;
@@ -215,7 +230,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const connection = getUserNotionConnection(authed.user.id);
+    const connection = await getUserNotionConnection(authed.user.id);
     sendJson(res, 200, {
       ok: true,
       mode: getNotionExportMode(),
@@ -246,7 +261,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const updated = setUserNotionDatabase(authed.user.id, normalizedDatabaseId);
+    const updated = await setUserNotionDatabase(authed.user.id, normalizedDatabaseId);
     if (!updated) {
       sendJson(res, 400, { ok: false, error: '请先连接 Notion，再设置数据库。' });
       return;
@@ -263,7 +278,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    disconnectUserNotion(authed.user.id);
+    await disconnectUserNotion(authed.user.id);
     sendJson(res, 200, { ok: true });
     return;
   }

@@ -21,6 +21,7 @@ interface RankedItem extends RawItem {
   topics: string[];
   category: Exclude<FrontendCategory, 'Hot'>;
   dedupeKey: string;
+  clusterKey: string;
 }
 
 interface AIConfig {
@@ -31,6 +32,7 @@ interface AIConfig {
 
 interface AIResult {
   summary: string;
+  category?: Exclude<FrontendCategory, 'Hot'>;
   topics: string[];
 }
 
@@ -42,7 +44,16 @@ const SOURCE_FETCH_LIMIT = 24;
 const FINAL_LIMIT = 30;
 const AI_REQUEST_TIMEOUT_MS = 8000;
 const MIN_HOT_SCORE = 8;
-const MIN_SUPPLEMENT_SCORE = 8;
+const MIN_SUPPLEMENT_SCORE = 12;
+const CORE_SOURCE_NAMES = new Set([
+  '量子位',
+  '机器之心',
+  '新智元',
+  'InfoQ',
+  'RadarAI',
+  '雷锋网AI',
+  '36Kr AI',
+]);
 
 const IMPORTANT_ENTITIES = [
   'openai', 'google', 'anthropic', 'claude', 'gemini', 'deepseek', 'qwen', 'glm', 'kimi',
@@ -54,6 +65,52 @@ const HOT_EVENT_WORDS = [
 ];
 const EXCLUDE_WORDS = ['日报', '周报', '月报', '合集', '回顾', '招聘', '活动', '课程', '直播'];
 const LOW_SIGNAL_WORDS = ['股价', '财报', '参数', '售价', '评测', '开箱'];
+const CLICKBAIT_WORDS = ['重磅', '震惊', '终于', '刚刚', '大动作', '大消息', '要变天', '彻底', '完全', '颠覆'];
+const TITLE_STOP_WORDS = new Set([
+  '发布', '宣布', '推出', '上线', '升级', '最新', '回应', '独家', '重磅', '刚刚', '昨日', '今天', 'ai',
+  '人工智能', '模型', '大模型', '产品', '商业', '政策', '公司', '平台', '应用', '热点',
+]);
+const ENTITY_ALIAS_MAP: Record<string, string> = {
+  'gpt-4': 'openai',
+  'gpt-5': 'openai',
+  'chatgpt': 'openai',
+  'sora': 'openai',
+  'o1': 'openai',
+  claude: 'anthropic',
+  gemini: 'google',
+  deepmind: 'google',
+  bard: 'google',
+  deepseek: 'deepseek',
+  豆包: '字节',
+  抖音: '字节',
+  火山引擎: '字节',
+  文心: '百度',
+  文心一言: '百度',
+  通义: '阿里',
+  通义千问: '阿里',
+  kimi: '月之暗面',
+  chatglm: '智谱',
+  glm: '智谱',
+  qwen: '阿里',
+};
+const EVENT_ALIAS_MAP: Record<string, string> = {
+  亮相: '发布',
+  登场: '发布',
+  推出: '发布',
+  问世: '发布',
+  官宣: '发布',
+  曝光: '首发',
+  谍照: '首发',
+  震撼: '突发',
+  重磅: '突发',
+  合并: '收购',
+  并购: '收购',
+  注资: '融资',
+  获投: '融资',
+  领投: '融资',
+};
+const TOP_TIER_ENTITIES = ['openai', 'google', 'anthropic', 'deepseek', 'nvidia'];
+const SECOND_TIER_ENTITIES = ['字节', '百度', '腾讯', '阿里', '智谱', '月之暗面', '微软', 'meta', 'apple'];
 
 const TOPIC_KEYWORDS: Array<{ label: string; patterns: string[] }> = [
   { label: 'LLM', patterns: ['llm', '大模型', '语言模型', 'gpt', 'claude', 'gemini', 'qwen', 'glm', 'deepseek'] },
@@ -80,15 +137,21 @@ const TOPIC_KEYWORDS: Array<{ label: string; patterns: string[] }> = [
   { label: '月之暗面', patterns: ['月之暗面', 'kimi'] },
 ];
 
-const SUMMARY_PROMPT = `你是 AI 科技新闻编辑。请基于标题和内容生成 60-100 字中文摘要，只保留关键事实，不做主观评价。
+const VALID_CATEGORIES: Array<Exclude<FrontendCategory, 'Hot'>> = ['模型', '产品', '政策', '商业'];
+
+const COMBINED_AI_PROMPT = `你是 AI 科技新闻编辑。请基于新闻标题和内容输出 JSON（不要输出 markdown 代码块）。
+返回格式必须是：
+{"summary":"...","category":"模型|产品|政策|商业","topics":["标签1","标签2","标签3"]}
+
+要求：
+1) summary：60-100 字中文，只保留关键事实，不做主观评价。
+2) category：只能是 模型/产品/政策/商业 其中一个。
+3) topics：1-3 个主题标签，优先从这组选择：LLM、Agent、多模态、开源、融资、推理、AI 产品、模型发布、AI 芯片、自动驾驶、机器人、AI 应用、AI 安全、政策监管、RAG、算力、OpenAI、Google、Anthropic、DeepSeek、字节跳动、智谱AI、月之暗面。
+4) 如没有合适标签，可补充 1 个短标签（2-12 字）。
+
 标题：{{title}}
 内容：{{content}}
 来源：{{source}}`;
-
-const TOPIC_PROMPT = `请从以下标签中选择 1-3 个最匹配的：LLM、Agent、多模态、开源、融资、推理、AI 产品、模型发布、AI 芯片、自动驾驶、机器人、AI 应用、AI 安全、政策监管、RAG、算力、OpenAI、Google、Anthropic、DeepSeek、字节跳动、智谱AI、月之暗面。
-如果都不匹配，可补充 1 个短标签。只输出标签，用中文逗号分隔。
-标题：{{title}}
-内容：{{content}}`;
 
 function normalizeText(value: string): string {
   return value
@@ -101,6 +164,89 @@ function normalizeText(value: string): string {
 
 function sanitizeText(value: string): string {
   return value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function tokenizeForSimilarity(value: string): string[] {
+  return normalizeText(value)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !TITLE_STOP_WORDS.has(token));
+}
+
+function normalizeEntities(text: string): string[] {
+  const normalized = normalizeText(text);
+  const entities = new Set<string>();
+
+  for (const [alias, canonical] of Object.entries(ENTITY_ALIAS_MAP)) {
+    if (normalized.includes(alias.toLowerCase())) {
+      entities.add(canonical);
+    }
+  }
+
+  for (const entity of IMPORTANT_ENTITIES) {
+    if (normalized.includes(entity.toLowerCase())) {
+      entities.add(entity);
+    }
+  }
+
+  return Array.from(entities);
+}
+
+function normalizeEvents(text: string): string[] {
+  const normalized = normalizeText(text);
+  const events = new Set<string>();
+
+  for (const [alias, canonical] of Object.entries(EVENT_ALIAS_MAP)) {
+    if (normalized.includes(alias.toLowerCase())) {
+      events.add(canonical);
+    }
+  }
+
+  for (const event of HOT_EVENT_WORDS) {
+    if (normalized.includes(event.toLowerCase())) {
+      events.add(event);
+    }
+  }
+
+  return Array.from(events);
+}
+
+function getEntityWeight(entity: string): number {
+  if (TOP_TIER_ENTITIES.includes(entity.toLowerCase())) return 12;
+  if (SECOND_TIER_ENTITIES.includes(entity)) return 8;
+  return 5;
+}
+
+function detectClickbait(title: string, content: string): number {
+  const titleNormalized = normalizeText(title);
+  const clickbaitHits = CLICKBAIT_WORDS.filter((keyword) => titleNormalized.includes(keyword)).length;
+  const isThinContent = sanitizeText(content).length < 200;
+
+  if (clickbaitHits >= 2 && isThinContent) return -15;
+  if (clickbaitHits >= 1 && isThinContent) return -8;
+  if (clickbaitHits >= 3) return -5;
+  return 0;
+}
+
+function getContentDensityBonus(content: string): number {
+  const length = sanitizeText(content).length;
+  if (length >= 1500) return 5;
+  if (length >= 800) return 3;
+  return 0;
+}
+
+function overlapScore(leftTokens: string[], rightTokens: string[]): number {
+  if (leftTokens.length === 0 || rightTokens.length === 0) return 0;
+
+  const left = new Set(leftTokens);
+  const right = new Set(rightTokens);
+  let same = 0;
+
+  for (const token of left) {
+    if (right.has(token)) same += 1;
+  }
+
+  return same / Math.max(left.size, right.size);
 }
 
 function normalizeUrl(raw: string): string {
@@ -238,38 +384,74 @@ function extractTopics(text: string): string[] {
   return byRule.length ? byRule : ['AI 动态'];
 }
 
+function buildClusterKey(title: string, content: string): string {
+  const text = `${title} ${content}`;
+  const entities = normalizeEntities(text).sort().slice(0, 2).join('|');
+  const events = normalizeEvents(text).sort().slice(0, 2).join('|');
+  const titleTokens = tokenizeForSimilarity(title).slice(0, 4).join('|');
+  return [entities, events, titleTokens].filter(Boolean).join('||') || normalizeText(title).slice(0, 72);
+}
+
 function buildDedupeKey(title: string, content: string): string {
-  // Use title-led key to avoid over-merging distinct stories under one entity/event.
-  // Keep a small entity suffix so exact same title from different sources still dedupes.
-  const titleCore = normalizeText(title).slice(0, 72);
-  const text = normalizeText(`${title} ${content}`);
-  const entity = IMPORTANT_ENTITIES.find((keyword) => text.includes(keyword.toLowerCase())) || '';
-  return entity ? `${titleCore}|${entity}` : titleCore;
+  const titleTokens = tokenizeForSimilarity(title).slice(0, 8).join('|');
+  const entities = normalizeEntities(`${title} ${content}`).sort().slice(0, 2).join('|');
+  const contentTokens = tokenizeForSimilarity(content).slice(0, 6).join('|');
+  return [entities, titleTokens, contentTokens].filter(Boolean).join('||') || normalizeText(title).slice(0, 96);
+}
+
+function areLikelyDuplicates(left: RankedItem, right: RankedItem): boolean {
+  if (left.url === right.url) return true;
+  if (left.dedupeKey === right.dedupeKey) return true;
+  if (left.clusterKey !== right.clusterKey) return false;
+
+  const leftTitleTokens = tokenizeForSimilarity(left.title);
+  const rightTitleTokens = tokenizeForSimilarity(right.title);
+  const leftContentTokens = tokenizeForSimilarity(left.content).slice(0, 20);
+  const rightContentTokens = tokenizeForSimilarity(right.content).slice(0, 20);
+
+  const titleOverlap = overlapScore(leftTitleTokens, rightTitleTokens);
+  const contentOverlap = overlapScore(leftContentTokens, rightContentTokens);
+
+  return titleOverlap >= 0.55 || (titleOverlap >= 0.4 && contentOverlap >= 0.35);
 }
 
 function calculateHotScore(item: RawItem, source: SourceConfig): RankedItem | null {
-  const text = normalizeText(`${item.title} ${item.content}`);
-  const title = normalizeText(item.title);
+  const title = sanitizeText(item.title);
+  const content = sanitizeText(item.content);
+  const text = normalizeText(`${title} ${content}`);
+  const titleNormalized = normalizeText(title);
   if (!text) return null;
-  if (EXCLUDE_WORDS.some((keyword) => title.includes(keyword))) return null;
+  if (EXCLUDE_WORDS.some((keyword) => titleNormalized.includes(keyword))) return null;
+  const isCoreSource = CORE_SOURCE_NAMES.has(source.name);
 
-  const entityHits = IMPORTANT_ENTITIES.filter((keyword) => text.includes(keyword)).length;
-  const eventHits = HOT_EVENT_WORDS.filter((keyword) => text.includes(keyword)).length;
+  const entities = normalizeEntities(text);
+  const events = normalizeEvents(text);
+  const entityHits = entities.length;
+  const eventHits = events.length;
   const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
   const lowSignalHits = LOW_SIGNAL_WORDS.filter((keyword) => text.includes(keyword)).length;
   if (entityHits === 0 && eventHits === 0 && aiHits === 0) return null;
 
+  if (!isCoreSource) {
+    if (aiHits === 0) return null;
+    if (entityHits + eventHits + aiHits < 2) return null;
+  }
+
   const authorityWeight = AUTHORITY_WEIGHTS[source.authorityLevel];
   let hotScore = Math.round(source.priority * 10 * authorityWeight);
-  hotScore += entityHits * 9;
+  entities.forEach((entity) => {
+    hotScore += getEntityWeight(entity);
+  });
   hotScore += eventHits * 5;
   hotScore += aiHits * 3;
-  hotScore -= lowSignalHits * 4;
+  hotScore -= lowSignalHits * 5;
 
   if (/(openai|google|anthropic|claude|gemini|deepseek)/i.test(title)) hotScore += 8;
   if (/(字节|百度|腾讯|阿里|华为|智谱|月之暗面)/i.test(title)) hotScore += 6;
   if (/(发布|开源|上线|升级|融资|收购|首发|突发)/i.test(title)) hotScore += 5;
   if (/(日报|周报|合集|回顾)/i.test(title)) hotScore -= 10;
+  hotScore += detectClickbait(title, content);
+  hotScore += getContentDensityBonus(content);
   if (hotScore < MIN_HOT_SCORE) return null;
 
   return {
@@ -277,34 +459,43 @@ function calculateHotScore(item: RawItem, source: SourceConfig): RankedItem | nu
     hotScore,
     topics: extractTopics(text),
     category: buildCategory(text),
-    dedupeKey: buildDedupeKey(item.title, item.content),
+    dedupeKey: buildDedupeKey(title, content),
+    clusterKey: buildClusterKey(title, content),
   };
 }
 
 function applyCrossPlatformBonus(items: RankedItem[]): RankedItem[] {
   const counts = new Map<string, number>();
   for (const item of items) {
-    counts.set(item.dedupeKey, (counts.get(item.dedupeKey) || 0) + 1);
+    counts.set(item.clusterKey, (counts.get(item.clusterKey) || 0) + 1);
   }
 
   return items.map((item) => {
-    const occurrences = counts.get(item.dedupeKey) || 1;
+    const occurrences = counts.get(item.clusterKey) || 1;
     const bonus = occurrences >= 3 ? 10 : occurrences === 2 ? 5 : 0;
     return { ...item, hotScore: item.hotScore + bonus };
   });
 }
 
 function dedupeBySignature(items: RankedItem[]): RankedItem[] {
-  const map = new Map<string, RankedItem>();
-  for (const item of items) {
-    const existing = map.get(item.dedupeKey);
-    if (!existing || item.hotScore > existing.hotScore) {
-      map.set(item.dedupeKey, item);
-    }
-  }
-  return Array.from(map.values()).sort(
+  const sorted = [...items].sort(
     (a, b) => b.hotScore - a.hotScore || Date.parse(b.publishedAt) - Date.parse(a.publishedAt),
   );
+  const deduped: RankedItem[] = [];
+
+  for (const item of sorted) {
+    const duplicateIndex = deduped.findIndex((existing) => areLikelyDuplicates(existing, item));
+    if (duplicateIndex === -1) {
+      deduped.push(item);
+      continue;
+    }
+
+    if (item.hotScore > deduped[duplicateIndex].hotScore) {
+      deduped[duplicateIndex] = item;
+    }
+  }
+
+  return deduped.sort((a, b) => b.hotScore - a.hotScore || Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
 }
 
 function buildSupplementItems(
@@ -326,18 +517,34 @@ function buildSupplementItems(
     if (selectedUrls.has(item.url)) continue;
 
     const source = API_RSS_SOURCES.find((x) => x.name === item.source);
+    const isCoreSource = source ? CORE_SOURCE_NAMES.has(source.name) : false;
     const base = source ? Math.round(source.priority * 10 * AUTHORITY_WEIGHTS[source.authorityLevel]) : 10;
     const aiHits = ['ai', '人工智能', '大模型', '模型', 'agent', '智能体'].filter((keyword) => text.includes(keyword)).length;
-    const entityHits = IMPORTANT_ENTITIES.filter((keyword) => text.includes(keyword)).length;
-    const eventHits = HOT_EVENT_WORDS.filter((keyword) => text.includes(keyword)).length;
-    const score = base + aiHits * 3 + entityHits * 2 + eventHits * 2;
+    const entities = normalizeEntities(text);
+    const events = normalizeEvents(text);
+    const entityHits = entities.length;
+    const eventHits = events.length;
+    if (!isCoreSource) {
+      if (aiHits === 0) continue;
+      if (entityHits + eventHits + aiHits < 2) continue;
+    }
+    const score =
+      base +
+      aiHits * 3 +
+      entities.reduce((sum, entity) => sum + Math.max(3, getEntityWeight(entity) - 4), 0) +
+      eventHits * 2 +
+      getContentDensityBonus(content) +
+      detectClickbait(title, content);
+
+    if (score < MIN_SUPPLEMENT_SCORE) continue;
 
     supplements.push({
       ...item,
-      hotScore: Math.max(MIN_SUPPLEMENT_SCORE, score),
+      hotScore: score,
       topics: extractTopics(text),
       category: buildCategory(text),
       dedupeKey,
+      clusterKey: buildClusterKey(title, content),
     });
   }
 
@@ -365,7 +572,7 @@ async function callAI(prompt: string, config: AIConfig): Promise<string> {
       model: config.model,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
-      max_tokens: 280,
+      max_tokens: 360,
     }),
     signal: controller.signal,
   }).finally(() => {
@@ -380,34 +587,58 @@ async function callAI(prompt: string, config: AIConfig): Promise<string> {
   return sanitizeText(data.choices[0]?.message?.content || '');
 }
 
+function parseAIJsonResult(raw: string): {
+  summary: string;
+  category?: Exclude<FrontendCategory, 'Hot'>;
+  topics: string[];
+} {
+  const cleaned = raw
+    .replace(/^```json/i, '')
+    .replace(/^```/i, '')
+    .replace(/```$/i, '')
+    .trim();
+
+  try {
+    const parsed = JSON.parse(cleaned) as {
+      summary?: string;
+      category?: string;
+      topics?: string[];
+    };
+
+    const summary = sanitizeText(parsed.summary || '');
+    const topics = Array.isArray(parsed.topics)
+      ? parsed.topics
+          .map((x) => sanitizeText(String(x)))
+          .filter((x) => x.length >= 2 && x.length <= 12)
+          .slice(0, 3)
+      : [];
+    const category = VALID_CATEGORIES.find((c) => (parsed.category || '').includes(c));
+
+    return { summary, category, topics };
+  } catch {
+    return { summary: '', topics: [] };
+  }
+}
+
 async function generateAIResult(item: RankedItem, config: AIConfig): Promise<AIResult> {
-  const summaryPrompt = SUMMARY_PROMPT
+  const prompt = COMBINED_AI_PROMPT
     .replace('{{title}}', item.title)
     .replace('{{content}}', item.content.slice(0, 500))
     .replace('{{source}}', item.source);
 
-  const topicPrompt = TOPIC_PROMPT
-    .replace('{{title}}', item.title)
-    .replace('{{content}}', item.content.slice(0, 300));
-
   try {
-    const [summaryResult, topicResult] = await Promise.all([
-      callAI(summaryPrompt, config),
-      item.topics.length < 2 ? callAI(topicPrompt, config) : Promise.resolve(''),
-    ]);
-
-    const aiTopics = topicResult
-      .split(/[,，]/)
-      .map((x) => sanitizeText(x))
-      .filter((x) => x.length >= 2 && x.length <= 12);
+    const raw = await callAI(prompt, config);
+    const parsed = parseAIJsonResult(raw);
 
     return {
-      summary: summaryResult,
-      topics: [...item.topics, ...aiTopics].filter((x, i, arr) => arr.indexOf(x) === i).slice(0, 3),
+      summary: parsed.summary,
+      category: parsed.category,
+      topics: [...item.topics, ...parsed.topics].filter((x, i, arr) => arr.indexOf(x) === i).slice(0, 3),
     };
   } catch {
     return {
       summary: '',
+      category: undefined,
       topics: item.topics,
     };
   }
@@ -465,6 +696,7 @@ async function fetchSource(source: SourceConfig): Promise<RawItem[]> {
 
 function toFrontendItem(item: RankedItem, aiResult: AIResult | undefined, index: number): FrontendNewsItem {
   const topics = aiResult?.topics?.length ? aiResult.topics : item.topics;
+  const category = aiResult?.category && VALID_CATEGORIES.includes(aiResult.category) ? aiResult.category : item.category;
   const summary =
     aiResult?.summary && aiResult.summary.length >= 20 && aiResult.summary.length <= 180
       ? aiResult.summary
@@ -474,7 +706,7 @@ function toFrontendItem(item: RankedItem, aiResult: AIResult | undefined, index:
     id: `${index + 1}`,
     Title: item.title,
     Source: item.source,
-    Category: item.category,
+    Category: category,
     Topics: topics,
     HotScore: item.hotScore,
     Summary: summary,

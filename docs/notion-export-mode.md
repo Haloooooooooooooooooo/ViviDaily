@@ -69,4 +69,31 @@ FRONTEND_URL=https://your-frontend-domain.com
 
 1. 不要求用户提交 Notion 密钥给管理员/AI。  
 2. 走标准 OAuth 授权。  
-3. 当前版本用户连接信息为内存态（进程重启会丢失），上线前建议落库（如 Supabase）。  
+3. 当前版本已支持把用户 Notion 连接信息持久化到 Supabase 表中，避免服务重启后授权状态丢失。  
+
+---
+
+## Supabase 持久化说明
+
+推荐创建表：`user_notion_connections`
+
+建议字段：
+
+- `user_id` `text primary key`
+- `access_token` `text not null`
+- `workspace_id` `text not null`
+- `workspace_name` `text not null`
+- `database_id` `text null`
+- `connected_at` `timestamptz not null`
+- `updated_at` `timestamptz not null default now()`
+
+后端使用的环境变量：
+
+```env
+SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+NOTION_OAUTH_TABLE=user_notion_connections
+```
+
+如果没有配置 `SUPABASE_SERVICE_ROLE_KEY`，后端仍会退回到进程内存作为兜底，但生产环境不建议这样部署。
