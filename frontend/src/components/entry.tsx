@@ -11,16 +11,39 @@ export const VideoBackground = () => {
     const video = videoRef.current;
     if (!video) return;
 
+    const playVideo = () => {
+      video.play().catch((err) => console.error('Video play failed:', err));
+    };
+
     if (Hls.isSupported()) {
       const hls = new Hls({
+        enableWorker: true,
         capLevelToPlayerSize: false,
         startLevel: -1,
+        maxBufferLength: 60,
+        backBufferLength: 90,
+        lowLatencyMode: false,
         debug: false,
       });
       hls.loadSource(videoUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().catch((err) => console.error('Video play failed:', err));
+        // Prefer the sharpest rendition available so the landing hero doesn't start blurry.
+        const bestLevel = hls.levels.reduce((bestIndex, level, index, levels) => {
+          const best = levels[bestIndex];
+          if (level.height !== best.height) {
+            return level.height > best.height ? index : bestIndex;
+          }
+          return level.bitrate > best.bitrate ? index : bestIndex;
+        }, 0);
+
+        if (hls.levels.length > 0) {
+          hls.currentLevel = bestLevel;
+          hls.nextLevel = bestLevel;
+          hls.loadLevel = bestLevel;
+        }
+
+        playVideo();
       });
 
       return () => {
@@ -30,15 +53,24 @@ export const VideoBackground = () => {
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = videoUrl;
-      video.addEventListener('loadedmetadata', () => {
-        video.play().catch((err) => console.error('Video play failed:', err));
-      });
+      video.addEventListener('loadedmetadata', playVideo);
+
+      return () => {
+        video.removeEventListener('loadedmetadata', playVideo);
+      };
     }
   }, []);
 
   return (
     <div className="absolute inset-0 z-0 overflow-hidden">
-      <video ref={videoRef} muted loop playsInline className="w-full h-full object-cover opacity-100" />
+      <video
+        ref={videoRef}
+        muted
+        loop
+        playsInline
+        preload="auto"
+        className="w-full h-full object-cover opacity-100"
+      />
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
     </div>
   );
